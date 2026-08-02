@@ -1,0 +1,11 @@
+{
+  "name": "should-i-buy-this",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx wrangler@latest dev",
+    "deploy": "npx wrangler@latest deploy",
+    "check": "node --check src/index.js && node --check public/app.js && node --check public/sw.js"
+  }
+}
