@@ -1,31 +1,27 @@
 # Should I Buy This?
 
-A mobile-first Progressive Web App that compares the real delivered cost, arrival time, fit, and purchase risk before recommending whether to buy, wait, or skip.
+React + TypeScript web app deployed through Cloudflare Workers.
 
-## Version 1
+## What GitHub and Cloudflare do
 
-- Personal, shared, work, and custom profiles
-- Product intake by link, screenshot, or search terms
-- Overall, Compare, Fit, and Risk assessment tabs
-- Delivered-price and shipping comparisons
-- Product-match confidence labels
-- Saved spaces and measurements
-- Weighted scoring with risk overrides
-- Installable PWA with share-target support where available
-- Cloudflare Workers and Workers AI integration
+- GitHub stores the code.
+- Cloudflare builds the code and publishes the live website.
 
 ## Local development
 
 ```bash
+npm install
 npm run dev
 ```
 
-## Deploy
+## Cloudflare deployment
 
-```bash
-npm run deploy
-```
+Connect this repository directly in Cloudflare Workers & Pages.
 
-The app is configured through `wrangler.jsonc` for Cloudflare Workers Static Assets and a Workers AI binding named `AI`.
+- Repository: `Jpops-OD/should-i-buy-this`
+- Production branch: `main`
+- Root directory: leave blank
+- Build command: `npm run build`
+- Deploy command: `npx wrangler deploy`
 
-See `docs/PRODUCT_SPEC.md` and `docs/TECHNICAL_HANDOFF.md` for product decisions, limitations, and implementation details.
+No settings from the recognition app should be reused.

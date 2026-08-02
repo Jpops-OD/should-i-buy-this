@@ -1,17 +1,1 @@
-{
-  "name": "Should I Buy This?",
-  "short_name": "Buy This?",
-  "description": "Compare delivered price, arrival time, fit, and purchase risk.",
-  "start_url": "/",
-  "display": "standalone",
-  "background_color": "#f7f7fb",
-  "theme_color": "#111827",
-  "icons": [
-    {"src":"/icons/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}
-  ],
-  "share_target": {
-    "action": "/",
-    "method": "GET",
-    "params": {"title":"title","text":"text","url":"url"}
-  }
-}
+{"name":"Should I Buy This?","short_name":"Buy Check","start_url":"/","display":"standalone","background_color":"#f4f2ec","theme_color":"#171923"}
