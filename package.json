@@ -1,1 +1,22 @@
-{"name":"should-i-buy-this","version":"1.0.0","private":true,"type":"module","scripts":{"dev":"vite","build":"vite build","deploy":"npm run build && wrangler deploy"},"dependencies":{"react":"^19.1.1","react-dom":"^19.1.1"},"devDependencies":{"@vitejs/plugin-react":"^4.7.0","typescript":"^5.9.2","vite":"^7.1.1","wrangler":"^4.28.1"}}
+{
+  "name": "should-i-buy-this",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "postinstall": "vite build",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.7.0",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.1",
+    "wrangler": "^4.28.1"
+  }
+}
