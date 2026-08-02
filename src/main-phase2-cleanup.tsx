@@ -1,0 +1,709 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import './styles.css';
+import './phase2.css';
+import './phase2-cleanup.css';
+
+type Offer = {
+  store: string;
+  itemPrice: number;
+  shipping: number | null;
+  deliveredPrice: number;
+  delivery: string;
+  match: string;
+};
+
+type Risk = {
+  level: 'low' | 'medium' | 'high';
+  title: string;
+  detail: string;
+};
+
+type Result = {
+  product: {
+    title: string;
+    category?: string;
+    dimensions?: { width: number; depth: number };
+  };
+  offers: Offer[];
+  risks: Risk[];
+  summary: string;
+  status?: 'verified' | 'partial' | 'blocked' | 'unsupported';
+  source?: string;
+};
+
+type AppError = {
+  title: string;
+  message: string;
+  detail?: string;
+  action?: string;
+};
+
+type ProfileKind = 'personal' | 'work' | 'shared' | 'custom';
+type Priority = 'balance' | 'price' | 'speed';
+type Currency = 'USD' | 'CAD' | 'GBP' | 'EUR';
+
+type Space = {
+  id: string;
+  name: string;
+  width: number;
+  depth: number;
+  doorway?: number;
+};
+
+type HistoryItem = {
+  id: string;
+  checkedAt: string;
+  title: string;
+  source?: string;
+  verdict: string;
+  score: number;
+  result: Result;
+};
+
+type Profile = {
+  id: string;
+  name: string;
+  kind: ProfileKind;
+  zip: string;
+  priority: Priority;
+  currency: Currency;
+  threshold: number;
+  memberships: string[];
+  spaces: Space[];
+  history: HistoryItem[];
+};
+
+type ProfileDraft = Pick<
+  Profile,
+  'name' | 'kind' | 'zip' | 'priority' | 'currency' | 'threshold' | 'memberships'
+>;
+
+type IconName =
+  | 'shield'
+  | 'check'
+  | 'link'
+  | 'search'
+  | 'image'
+  | 'scale'
+  | 'ruler'
+  | 'alert'
+  | 'clock'
+  | 'spark'
+  | 'arrow'
+  | 'price'
+  | 'risk'
+  | 'user'
+  | 'settings'
+  | 'plus'
+  | 'trash'
+  | 'history';
+
+const STORAGE_KEY = 'sibt-phase2-state';
+const MEMBERSHIPS = [
+  'Amazon Prime',
+  'Walmart+',
+  'Target Circle 360',
+  'Costco',
+  "Sam's Club",
+  'Best Buy Plus',
+];
+
+const uid = () =>
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const defaultProfile = (): Profile => ({
+  id: uid(),
+  name: 'Personal',
+  kind: 'personal',
+  zip: '',
+  priority: 'balance',
+  currency: 'USD',
+  threshold: 250,
+  memberships: [],
+  spaces: [],
+  history: [],
+});
+
+const toDraft = (profile: Profile): ProfileDraft => ({
+  name: profile.name,
+  kind: profile.kind,
+  zip: profile.zip,
+  priority: profile.priority,
+  currency: profile.currency,
+  threshold: profile.threshold,
+  memberships: [...profile.memberships],
+});
+
+function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+  const paths: Record<IconName, React.ReactNode> = {
+    shield: <path d="M12 3 5 6v5c0 4.4 2.9 8.5 7 10 4.1-1.5 7-5.6 7-10V6l-7-3Z" />,
+    check: <path d="m7 12 3 3 7-7" />,
+    link: <><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" /></>,
+    search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></>,
+    image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m21 15-5-5L5 20" /></>,
+    scale: <><path d="M12 3v18M5 7h14M7 7l-4 7h8L7 7Zm10 0-4 7h8l-4-7Z" /></>,
+    ruler: <><path d="m4 16 12-12 4 4L8 20H4v-4Z" /><path d="m13 7 4 4M10 10l2 2M7 13l2 2" /></>,
+    alert: <><path d="M12 3 2.8 19h18.4L12 3Z" /><path d="M12 9v4M12 17h.01" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    spark: <><path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z" /><path d="m18.5 14 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" /></>,
+    arrow: <path d="m9 18 6-6-6-6" />,
+    price: <><path d="M12 2v20M17 6.5c-1-1-2.5-1.5-4.4-1.5-2.3 0-4.1 1.1-4.1 3 0 4.5 9 2.2 9 7 0 2-1.8 3.5-4.5 3.5-2 0-3.8-.7-5-2" /></>,
+    risk: <><path d="M12 3 5 6v5c0 4.4 2.9 8.5 7 10 4.1-1.5 7-5.6 7-10V6l-7-3Z" /><path d="M12 8v5M12 16h.01" /></>,
+    user: <><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4.2 3.5-6.5 8-6.5s7.2 2.3 8 6.5" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1A1.7 1.7 0 0 0 4.3 7l-.1-.1L7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></>,
+    plus: <path d="M12 5v14M5 12h14" />,
+    trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14" /></>,
+    history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></>,
+  };
+
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
+const sample: Result = {
+  product: {
+    title: 'Ridgeway 60-inch Acacia Patio Dining Table',
+    category: 'Outdoor furniture',
+    dimensions: { width: 60, depth: 35 },
+  },
+  offers: [
+    { store: 'Walmart', itemPrice: 288, shipping: 0, deliveredPrice: 288, delivery: '3 days', match: 'Exact' },
+    { store: 'Amazon', itemPrice: 279, shipping: 29.99, deliveredPrice: 308.99, delivery: '2 days', match: 'Exact' },
+    { store: 'Target', itemPrice: 309.99, shipping: 0, deliveredPrice: 309.99, delivery: '5 days', match: 'Likely' },
+  ],
+  risks: [
+    { level: 'low', title: 'Two exact matches found', detail: 'The same model appears at more than one store.' },
+    { level: 'medium', title: 'Marketplace seller', detail: 'One offer may have a different return process.' },
+  ],
+  summary: 'Walmart is the best balance of delivered price, delivery speed, and seller confidence.',
+  status: 'verified',
+};
+
+const money = (value: number, currency: string) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
+
+function getScores(result: Result, fit: number | null) {
+  const compare = Math.min(
+    100,
+    45 + result.offers.length * 12 + result.offers.filter((offer) => offer.match === 'Exact').length * 8,
+  );
+  const risk = Math.max(
+    10,
+    100 - result.risks.reduce(
+      (total, item) => total + (item.level === 'high' ? 35 : item.level === 'medium' ? 15 : 5),
+      0,
+    ),
+  );
+  let overall = fit == null
+    ? Math.round(compare * 0.65 + risk * 0.35)
+    : Math.round(compare * 0.5 + fit * 0.25 + risk * 0.25);
+  if (result.risks.some((item) => item.level === 'high')) overall = Math.min(overall, 59);
+  return {
+    compare,
+    risk,
+    overall,
+    verdict: overall >= 82
+      ? 'Strong Buy'
+      : overall >= 70
+        ? 'Worth Considering'
+        : overall >= 55
+          ? 'Wait'
+          : overall >= 35
+            ? 'Probably Skip'
+            : 'Do Not Buy',
+  };
+}
+
+function normalizeError(status: number, payload: any): AppError {
+  const code = payload?.code;
+  if (code === 'RETAILER_BLOCKED' || status === 403) {
+    return {
+      title: 'This retailer blocked the automated check',
+      message: 'The app is working, but this store would not allow us to read the public product page.',
+      detail: 'Try another retailer link for the same item.',
+      action: 'Try another product link',
+    };
+  }
+  if (code === 'UNSUPPORTED_INPUT' || status === 422) {
+    return {
+      title: 'That option is not connected yet',
+      message: payload?.error || 'This version currently supports direct public product links.',
+      detail: 'The sample assessment remains available while product search and screenshot intake are built.',
+      action: 'Use a direct product link',
+    };
+  }
+  if (code === 'INVALID_URL' || status === 400) {
+    return {
+      title: 'That does not look like a product link',
+      message: payload?.error || 'Paste the full address from the retailer product page.',
+      action: 'Check the link and try again',
+    };
+  }
+  if (code === 'PRICE_NOT_FOUND') {
+    return {
+      title: 'The product was found, but the price was hidden',
+      message: payload?.error || 'This store did not expose a public price we could verify.',
+      detail: 'No recommendation was created from guessed pricing.',
+      action: 'Try another retailer link',
+    };
+  }
+  if (status >= 500) {
+    return {
+      title: 'We could not finish this check',
+      message: 'The product page could not be read right now.',
+      detail: 'This may be temporary, or the retailer may be limiting automated access.',
+      action: 'Try again or use another retailer',
+    };
+  }
+  return {
+    title: 'This check could not be completed',
+    message: payload?.error || 'Something unexpected happened.',
+    action: 'Try again',
+  };
+}
+
+function Brand() {
+  return (
+    <div className="brand-lockup" aria-label="Should I Buy This?">
+      <span className="brand-mark"><Icon name="shield" size={19} /></span>
+      <span>Should I Buy This?</span>
+    </div>
+  );
+}
+
+function App() {
+  const saved = useMemo(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+      if (parsed?.profiles?.length) {
+        return parsed as { profiles: Profile[]; activeProfileId: string };
+      }
+    } catch {
+      // Ignore unusable local storage and create a fresh profile.
+    }
+    const profile = defaultProfile();
+    return { profiles: [profile], activeProfileId: profile.id };
+  }, []);
+
+  const [profiles, setProfiles] = useState<Profile[]>(saved.profiles);
+  const [activeProfileId, setActiveProfileId] = useState(saved.activeProfileId);
+  const initialProfile = saved.profiles.find((item) => item.id === saved.activeProfileId) || saved.profiles[0];
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(() => toDraft(initialProfile));
+  const [manageProfiles, setManageProfiles] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [mode, setMode] = useState<'link' | 'search' | 'screenshot'>('link');
+  const [input, setInput] = useState('');
+  const [result, setResult] = useState<Result | null>(null);
+  const [tab, setTab] = useState<'overall' | 'compare' | 'fit' | 'risk'>('overall');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<AppError | null>(null);
+  const [space, setSpace] = useState({ name: 'Current space', width: 96, depth: 82, doorway: 34 });
+  const [selectedSpaceId, setSelectedSpaceId] = useState('');
+  const [fit, setFit] = useState<number | null>(null);
+
+  const profile = profiles.find((item) => item.id === activeProfileId) || profiles[0];
+  const scores = useMemo(() => result ? getScores(result, fit) : null, [result, fit]);
+  const verdictTone = scores && scores.overall >= 70
+    ? 'success'
+    : scores && scores.overall >= 55
+      ? 'warning'
+      : 'danger';
+  const hasUnsavedChanges = JSON.stringify(profileDraft) !== JSON.stringify(toDraft(profile));
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profiles, activeProfileId }));
+  }, [profiles, activeProfileId]);
+
+  useEffect(() => {
+    if (!profiles.some((item) => item.id === activeProfileId) && profiles[0]) {
+      setActiveProfileId(profiles[0].id);
+    }
+  }, [profiles, activeProfileId]);
+
+  useEffect(() => {
+    setProfileDraft(toDraft(profile));
+    setSaveMessage('');
+  }, [profile.id]);
+
+  function updateProfile(patch: Partial<Profile>) {
+    setProfiles((items) => items.map((item) => (
+      item.id === profile.id ? { ...item, ...patch } : item
+    )));
+  }
+
+  function resetCheck() {
+    setResult(null);
+    setError(null);
+    setFit(null);
+    setInput('');
+    setTab('overall');
+  }
+
+  function confirmDiscardChanges() {
+    return !hasUnsavedChanges || window.confirm('Discard unsaved profile changes?');
+  }
+
+  function switchProfile(id: string, keepManagerOpen = false) {
+    if (id === profile.id) return;
+    if (!confirmDiscardChanges()) return;
+    const next = profiles.find((item) => item.id === id);
+    if (!next) return;
+    setActiveProfileId(id);
+    setProfileDraft(toDraft(next));
+    setSaveMessage('');
+    setManageProfiles(keepManagerOpen);
+    resetCheck();
+  }
+
+  function toggleProfileManager() {
+    if (manageProfiles && !confirmDiscardChanges()) return;
+    setProfileDraft(toDraft(profile));
+    setSaveMessage('');
+    setManageProfiles((value) => !value);
+  }
+
+  function createProfile(kind: ProfileKind = 'personal') {
+    if (!confirmDiscardChanges()) return;
+    const next: Profile = {
+      ...defaultProfile(),
+      kind,
+      name: kind === 'work'
+        ? 'Work'
+        : kind === 'shared'
+          ? 'Shared household'
+          : kind === 'custom'
+            ? 'Custom'
+            : `Personal ${profiles.length + 1}`,
+    };
+    setProfiles((items) => [...items, next]);
+    setActiveProfileId(next.id);
+    setProfileDraft(toDraft(next));
+    setSaveMessage('');
+    setManageProfiles(true);
+    resetCheck();
+  }
+
+  function deleteProfile(id: string) {
+    if (profiles.length === 1) return;
+    const nextProfiles = profiles.filter((item) => item.id !== id);
+    setProfiles(nextProfiles);
+    if (id === activeProfileId) {
+      const next = nextProfiles[0];
+      setActiveProfileId(next.id);
+      setProfileDraft(toDraft(next));
+      resetCheck();
+    }
+  }
+
+  function toggleDraftMembership(name: string) {
+    setProfileDraft((draft) => ({
+      ...draft,
+      memberships: draft.memberships.includes(name)
+        ? draft.memberships.filter((item) => item !== name)
+        : [...draft.memberships, name],
+    }));
+    setSaveMessage('');
+  }
+
+  function saveProfilePreferences() {
+    const cleanName = profileDraft.name.trim() || 'Untitled profile';
+    const cleanZip = profileDraft.zip.replace(/[^0-9A-Za-z -]/g, '').slice(0, 12);
+    updateProfile({
+      ...profileDraft,
+      name: cleanName,
+      zip: cleanZip,
+      threshold: Math.max(0, Number(profileDraft.threshold) || 0),
+      memberships: [...profileDraft.memberships],
+    });
+    setProfileDraft((draft) => ({
+      ...draft,
+      name: cleanName,
+      zip: cleanZip,
+      threshold: Math.max(0, Number(draft.threshold) || 0),
+    }));
+    setSaveMessage('Changes saved');
+  }
+
+  function cancelProfileEdit() {
+    setProfileDraft(toDraft(profile));
+    setSaveMessage('');
+    setManageProfiles(false);
+  }
+
+  function saveSpace() {
+    if (!space.name.trim() || space.width <= 0 || space.depth <= 0) return;
+    const next: Space = {
+      id: uid(),
+      name: space.name.trim(),
+      width: space.width,
+      depth: space.depth,
+      doorway: space.doorway,
+    };
+    updateProfile({ spaces: [...profile.spaces, next] });
+    setSelectedSpaceId(next.id);
+  }
+
+  function removeSpace(id: string) {
+    updateProfile({ spaces: profile.spaces.filter((item) => item.id !== id) });
+    if (selectedSpaceId === id) setSelectedSpaceId('');
+  }
+
+  function loadSpace(id: string) {
+    setSelectedSpaceId(id);
+    const savedSpace = profile.spaces.find((item) => item.id === id);
+    if (savedSpace) {
+      setSpace({
+        name: savedSpace.name,
+        width: savedSpace.width,
+        depth: savedSpace.depth,
+        doorway: savedSpace.doorway || 0,
+      });
+    }
+  }
+
+  function addHistory(nextResult: Result) {
+    const nextScores = getScores(nextResult, null);
+    const item: HistoryItem = {
+      id: uid(),
+      checkedAt: new Date().toISOString(),
+      title: nextResult.product.title,
+      source: nextResult.source,
+      verdict: nextScores.verdict,
+      score: nextScores.overall,
+      result: nextResult,
+    };
+    updateProfile({ history: [item, ...profile.history].slice(0, 25) });
+  }
+
+  function reopenHistory(item: HistoryItem) {
+    setResult(item.result);
+    setTab('overall');
+    setFit(null);
+    setManageProfiles(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function clearHistory() {
+    updateProfile({ history: [] });
+  }
+
+  async function analyze(useSample = false) {
+    setLoading(true);
+    setError(null);
+    setFit(null);
+    setTab('overall');
+    try {
+      const nextResult = useSample
+        ? sample
+        : await (async () => {
+          const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode,
+              input,
+              zip: profile.zip,
+              priority: profile.priority,
+              currency: profile.currency,
+              memberships: profile.memberships,
+            }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw { status: response.status, payload: data };
+          return data as Result;
+        })();
+      setResult(nextResult);
+      addHistory(nextResult);
+    } catch (caught: any) {
+      setError(caught?.status
+        ? normalizeError(caught.status, caught.payload)
+        : normalizeError(503, {}));
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!result) {
+    return (
+      <main>
+        <header className="site-header home-header">
+          <Brand />
+        </header>
+
+        <section className="hero">
+          <div className="eyebrow"><Icon name="spark" size={16} /> BEFORE YOU CHECK OUT</div>
+          <h1>A clearer answer before you spend.</h1>
+          <p>Compare total price, shipping, arrival time, fit, and purchase risk using the preferences saved for <b>{profile.name}</b>.</p>
+          <div className="trust-strip">
+            <div><Icon name="check" /><span><b>No guessed prices</b><small>Missing data stays missing.</small></span></div>
+            <div><Icon name="risk" /><span><b>Risk shown plainly</b><small>Warnings cannot hide in an average.</small></span></div>
+            <div><Icon name="scale" /><span><b>Evidence over urgency</b><small>The app does not earn from the sale.</small></span></div>
+          </div>
+        </section>
+
+        <section className="card quick-context active-profile-card">
+          <div className="active-profile-row">
+            <div className="section-heading compact-heading active-profile-heading">
+              <div className="section-icon"><Icon name="shield" /></div>
+              <div><span className="kicker">Active profile</span><h2>{profile.name}</h2></div>
+            </div>
+            <div className="profile-controls">
+              <select
+                className="profile-switcher"
+                aria-label="Active profile"
+                value={profile.id}
+                onChange={(event) => switchProfile(event.target.value)}
+              >
+                {profiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="Manage profiles"
+                aria-expanded={manageProfiles}
+                onClick={toggleProfileManager}
+              >
+                <Icon name="settings" />
+              </button>
+            </div>
+          </div>
+          <div className="context-chips">
+            <span>{profile.zip || 'ZIP not set'}</span>
+            <span>{profile.priority === 'price' ? 'Lowest price' : profile.priority === 'speed' ? 'Fastest arrival' : 'Best balance'}</span>
+            <span>{profile.currency}</span>
+            <span>{profile.memberships.length} membership{profile.memberships.length === 1 ? '' : 's'}</span>
+          </div>
+        </section>
+
+        {manageProfiles && (
+          <section className="card profile-manager">
+            <div className="section-heading">
+              <div className="section-icon"><Icon name="user" /></div>
+              <div><span className="kicker">Saved locally in this browser</span><h2>Profiles and preferences</h2></div>
+            </div>
+            <div className="profile-manager-layout">
+              <aside className="profile-list">
+                {profiles.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={item.id === profile.id ? 'selected' : ''}
+                    onClick={() => switchProfile(item.id, true)}
+                  >
+                    <span><b>{item.name}</b><small>{item.kind}</small></span>
+                    {profiles.length > 1 && (
+                      <span
+                        className="delete-profile"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Delete ${item.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteProfile(item.id);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            deleteProfile(item.id);
+                          }
+                        }}
+                      >
+                        <Icon name="trash" size={16} />
+                      </span>
+                    )}
+                  </button>
+                ))}
+                <button className="add-profile" type="button" onClick={() => createProfile('personal')}>
+                  <Icon name="plus" size={17} /> Add profile
+                </button>
+              </aside>
+
+              <div className="profile-editor">
+                <div className="grid profile-grid">
+                  <label>Profile name<input value={profileDraft.name} onChange={(event) => { setProfileDraft({ ...profileDraft, name: event.target.value }); setSaveMessage(''); }} /></label>
+                  <label>Profile type<select value={profileDraft.kind} onChange={(event) => { setProfileDraft({ ...profileDraft, kind: event.target.value as ProfileKind }); setSaveMessage(''); }}><option value="personal">Personal</option><option value="work">Work</option><option value="shared">Shared household</option><option value="custom">Custom</option></select></label>
+                  <label>Shipping ZIP<input inputMode="numeric" value={profileDraft.zip} onChange={(event) => { setProfileDraft({ ...profileDraft, zip: event.target.value }); setSaveMessage(''); }} placeholder="17603" /></label>
+                  <label>Priority<select value={profileDraft.priority} onChange={(event) => { setProfileDraft({ ...profileDraft, priority: event.target.value as Priority }); setSaveMessage(''); }}><option value="balance">Best balance</option><option value="price">Lowest price</option><option value="speed">Fastest arrival</option></select></label>
+                  <label>Currency<select value={profileDraft.currency} onChange={(event) => { setProfileDraft({ ...profileDraft, currency: event.target.value as Currency }); setSaveMessage(''); }}><option value="USD">USD</option><option value="CAD">CAD</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label>
+                  <label>Large-purchase threshold<input type="number" min="0" value={profileDraft.threshold} onChange={(event) => { setProfileDraft({ ...profileDraft, threshold: Number(event.target.value) }); setSaveMessage(''); }} /></label>
+                </div>
+
+                <fieldset className="membership-fieldset">
+                  <legend>Store memberships</legend>
+                  {MEMBERSHIPS.map((name) => (
+                    <label key={name} className="check-label">
+                      <input type="checkbox" checked={profileDraft.memberships.includes(name)} onChange={() => toggleDraftMembership(name)} />
+                      {name}
+                    </label>
+                  ))}
+                </fieldset>
+
+                <div className="data-note">
+                  <Icon name="shield" size={18} />
+                  <span><b>Stored on this device only</b><small>Profiles, spaces, and history remain in this browser. No account or cloud sync is active yet.</small></span>
+                </div>
+
+                <div className="profile-save-row">
+                  <div className="save-feedback" role="status" aria-live="polite">
+                    {saveMessage || (hasUnsavedChanges ? 'You have unsaved changes.' : 'All changes are saved.')}
+                  </div>
+                  <div className="profile-save-actions">
+                    <button className="secondary" type="button" onClick={cancelProfileEdit}>Cancel</button>
+                    <button className="primary save-profile-button" type="button" disabled={!hasUnsavedChanges} onClick={saveProfilePreferences}>
+                      <Icon name="check" size={18} /> Save changes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="card intake-card">
+          <div className="section-heading compact-heading"><div className="section-icon"><Icon name="search" /></div><div><span className="kicker">Start a purchase check</span><h2>What are you considering?</h2></div></div>
+          <nav className="input-tabs">
+            {([['link', 'Product link', 'link'], ['search', 'Search by name', 'search'], ['screenshot', 'Screenshot', 'image']] as const).map(([item, label, icon]) => (
+              <button key={item} type="button" className={mode === item ? 'active' : ''} onClick={() => { setMode(item); setError(null); }}><Icon name={icon} size={18} /> {label}</button>
+            ))}
+          </nav>
+          {mode !== 'link' && <div className="notice info"><span className="notice-icon"><Icon name="clock" /></span><span><b>{mode === 'search' ? 'Search by name is coming next.' : 'Screenshot reading is coming next.'}</b><small>For now, paste a direct product page link or use the sample assessment.</small></span></div>}
+          <textarea value={input} onChange={(event) => setInput(event.target.value)} placeholder={mode === 'link' ? 'Paste a full product page link' : 'This input method is not connected yet'} disabled={mode !== 'link' || loading} />
+          <div className="action-stack">
+            <button className="primary" type="button" disabled={mode !== 'link' || !input.trim() || loading} onClick={() => analyze(false)}>{loading ? <><span className="spinner compact" /> Checking the product…</> : <><Icon name="shield" /> Check this purchase <Icon name="arrow" size={18} /></>}</button>
+            <button className="secondary" type="button" disabled={loading} onClick={() => analyze(true)}><Icon name="spark" size={18} /> Try sample assessment</button>
+          </div>
+          {loading && <div className="loading"><span className="spinner" />Reading the product page and checking what can be verified…</div>}
+          {error && <div className="error-card" role="alert"><span className="notice-icon"><Icon name="alert" /></span><span><strong>{error.title}</strong><p>{error.message}</p>{error.detail && <small>{error.detail}</small>}{error.action && <b className="error-action">Next: {error.action}</b>}</span></div>}
+        </section>
+
+        <section className="card history-card">
+          <div className="section-heading compact-heading"><div className="section-icon"><Icon name="history" /></div><div><span className="kicker">Saved for {profile.name}</span><h2>Recent checks</h2></div></div>
+          {profile.history.length === 0 ? <div className="empty-state"><Icon name="history" /><span><b>No checks saved yet.</b><small>Completed assessments will appear here for this profile.</small></span></div> : <><div className="history-list">{profile.history.slice(0, 6).map((item) => <button key={item.id} type="button" onClick={() => reopenHistory(item)}><span><b>{item.title}</b><small>{new Date(item.checkedAt).toLocaleDateString()} · {item.verdict}</small></span><strong>{item.score}</strong></button>)}</div><button className="text-danger" type="button" onClick={clearHistory}>Clear {profile.name} history</button></>}
+        </section>
+      </main>
+    );
+  }
+
+  const best = result.offers.length ? [...result.offers].sort((a, b) => a.deliveredPrice - b.deliveredPrice)[0] : null;
+
+  return (
+    <main>
+      <header className="site-header results-header"><button className="back-button" type="button" onClick={resetCheck}>← New check</button><Brand /><span className="result-profile"><Icon name="user" size={16} /> {profile.name}</span></header>
+      <section className="title"><div><div className="eyebrow"><Icon name="scale" size={16} /> PURCHASE ASSESSMENT</div><h1>{result.product.title}</h1><p>{result.product.category || 'Product comparison'}</p><div className={`status-pill ${result.status === 'verified' ? 'success' : 'warning'}`}><Icon name={result.status === 'verified' ? 'check' : 'alert'} size={16} />{result.status === 'verified' ? 'Verified sample result' : 'Partial verification'}</div></div><div className={`score ${verdictTone}`}><span className="score-label">Overall</span><strong>{scores?.overall}</strong><span>{scores?.verdict}</span></div></section>
+      {result.status === 'partial' && <div className="notice warning"><span className="notice-icon"><Icon name="alert" /></span><span><b>Partial verification</b><small>Only information exposed by the submitted retailer was used. No missing price or shipping data was guessed.</small></span></div>}
+      <nav className="tabs">{([['overall', 'Overall', 'scale'], ['compare', 'Compare', 'price'], ['fit', 'Fit', 'ruler'], ['risk', 'Risk', 'risk']] as const).map(([item, label, icon]) => <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}><Icon name={icon} size={17} /> {label}</button>)}</nav>
+      {tab === 'overall' && <section className="card"><div className="metrics"><article><span className="metric-icon info"><Icon name="price" /></span><span>Best option</span><b>{best?.store || 'Not enough data'}</b><small>{best ? `${money(best.deliveredPrice, profile.currency)} before unverified shipping` : 'No verified price found'}</small></article><article><span className="metric-icon info"><Icon name="scale" /></span><span>Comparison</span><b>{scores?.compare}/100</b><small>{result.offers.length} verified offer{result.offers.length === 1 ? '' : 's'}</small></article><article><span className={`metric-icon ${scores && scores.risk >= 75 ? 'success' : scores && scores.risk >= 50 ? 'warning' : 'danger'}`}><Icon name="risk" /></span><span>Risk protection</span><b>{scores?.risk}/100</b><small>{best && best.deliveredPrice >= profile.threshold ? `Above ${money(profile.threshold, profile.currency)} review threshold` : 'Within current profile threshold'}</small></article></div><div className={`callout ${verdictTone}`}><span className="callout-icon"><Icon name={verdictTone === 'success' ? 'check' : verdictTone === 'warning' ? 'clock' : 'alert'} size={24} /></span><div><span className="kicker">Recommendation</span><h2>{scores?.verdict}</h2><p>{result.summary}</p></div></div></section>}
+      {tab === 'compare' && <section className="card"><div className="section-heading compact-heading"><div className="section-icon"><Icon name="price" /></div><div><span className="kicker">Verified listings</span><h2>Price comparison</h2></div></div>{result.offers.length === 0 ? <div className="empty-state"><Icon name="search" /><span><b>No verified offers were returned.</b><small>The app will not invent comparison prices.</small></span></div> : result.offers.map((offer, index) => <article className="offer" key={`${offer.store}-${offer.deliveredPrice}`}><div className="offer-store"><span className="offer-rank">{index + 1}</span><span><b>{offer.store}</b><small className={`match ${offer.match === 'Exact' ? 'success' : 'warning'}`}><Icon name={offer.match === 'Exact' ? 'check' : 'alert'} size={14} /> {offer.match} match</small></span></div><div><span className="data-label">Item</span><b>{money(offer.itemPrice, profile.currency)}</b></div><div><span className="data-label">Shipping</span><b>{offer.shipping === 0 ? 'Free' : offer.shipping == null ? 'Not verified' : money(offer.shipping, profile.currency)}</b></div><div><span className="data-label">Listed total</span><strong>{money(offer.deliveredPrice, profile.currency)}</strong></div><div><span className="data-label">Arrival</span><b>{offer.delivery}</b></div></article>)}</section>}
+      {tab === 'fit' && <section className="card"><div className="section-heading compact-heading"><div className="section-icon"><Icon name="ruler" /></div><div><span className="kicker">Saved for {profile.name}</span><h2>Will it fit?</h2></div></div>{profile.spaces.length > 0 && <label className="saved-space-select">Use a saved space<select value={selectedSpaceId} onChange={(event) => loadSpace(event.target.value)}><option value="">Choose a saved space</option>{profile.spaces.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.width} × {item.depth}</option>)}</select></label>}<div className="grid fit-grid"><label>Space name<input value={space.name} onChange={(event) => setSpace({ ...space, name: event.target.value })} /></label><label>Maximum width<input type="number" min="1" value={space.width} onChange={(event) => setSpace({ ...space, width: Number(event.target.value) })} /></label><label>Maximum depth<input type="number" min="1" value={space.depth} onChange={(event) => setSpace({ ...space, depth: Number(event.target.value) })} /></label><label>Doorway width<input type="number" min="0" value={space.doorway} onChange={(event) => setSpace({ ...space, doorway: Number(event.target.value) })} /></label></div><div className="fit-actions"><button className="primary fit-button" type="button" onClick={() => { const dimensions = result.product.dimensions; setFit(!dimensions ? 45 : dimensions.width > space.width || dimensions.depth > space.depth ? 18 : 92); }}><Icon name="ruler" /> Check fit</button><button className="secondary" type="button" onClick={saveSpace}><Icon name="plus" size={17} /> Save this space</button></div>{fit != null && <div className={`fit-result ${fit < 40 ? 'danger' : fit < 70 ? 'warning' : 'success'}`}><span className="notice-icon"><Icon name={fit < 40 ? 'alert' : fit < 70 ? 'clock' : 'check'} /></span><span><b>{fit >= 80 ? 'Fits within the entered space.' : fit >= 40 ? 'Product dimensions were not fully verified.' : 'The item is larger than the entered space.'}</b><small>Fit score: {fit}/100</small></span></div>}{profile.spaces.length > 0 && <div className="saved-spaces"><h3>Saved spaces</h3>{profile.spaces.map((item) => <div key={item.id}><button type="button" onClick={() => loadSpace(item.id)}>{item.name} · {item.width} × {item.depth}</button><button type="button" aria-label={`Delete ${item.name}`} onClick={() => removeSpace(item.id)}><Icon name="trash" size={16} /></button></div>)}</div>}</section>}
+      {tab === 'risk' && <section className="card"><div className="section-heading compact-heading"><div className="section-icon"><Icon name="risk" /></div><div><span className="kicker">Purchase protection</span><h2>Risk review</h2></div></div><div className="risk-list">{result.risks.map((risk, index) => <article className={`risk ${risk.level}`} key={`${risk.title}-${index}`}><span className="notice-icon"><Icon name={risk.level === 'low' ? 'check' : risk.level === 'medium' ? 'clock' : 'alert'} /></span><div><span className={`status-pill ${risk.level === 'low' ? 'success' : risk.level === 'medium' ? 'warning' : 'danger'}`}>{risk.level === 'low' ? 'Low risk' : risk.level === 'medium' ? 'Review needed' : 'High risk'}</span><b>{risk.title}</b><p>{risk.detail}</p></div></article>)}</div></section>}
+    </main>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(<App />);
