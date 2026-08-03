@@ -1,0 +1,294 @@
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function analyze(useSample = false) {
+    setLoading(true);
+    setError(null);
+    setFit(null);
+    setTab('overall');
+    try {
+      const nextResult = useSample
+        ? sample
+        : await (async () => {
+          if (!intakeDraft?.title.trim()) {
+            throw { status: 400, payload: { code: 'PRODUCT_NOT_FOUND', error: 'Confirm a product title before continuing.' } };
+          }
+          const response = await fetch('/api/analyze', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              mode,
+              input,
+              product: intakeDraft,
+              zip: profile.zip,
+              priority: profile.priority,
+              currency: profile.currency,
+              memberships: profile.memberships,
+            }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok) throw { status: response.status, payload: data };
+          return data as Result;
+        })();
+      setResult(nextResult);
+      addHistory(nextResult);
+    } catch (caught: any) {
+      setError(caught?.status
+        ? normalizeError(caught.status, caught.payload)
+        : normalizeError(503, {}));
+      setResult(null);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (!result) {
+    return (
+      <main>
+        <header className="site-header home-header">
+          <Brand />
+        </header>
+
+        <section className="hero">
+          <div className="eyebrow"><Icon name="spark" size={16} /> BEFORE YOU CHECK OUT</div>
+          <h1>A clearer answer before you spend.</h1>
+          <p>Compare total price, shipping, arrival time, fit, and purchase risk using the preferences saved for <b>{profile.name}</b>.</p>
+          <div className="trust-strip">
+            <div><Icon name="check" /><span><b>No guessed prices</b><small>Missing data stays missing.</small></span></div>
+            <div><Icon name="risk" /><span><b>Risk shown plainly</b><small>Warnings cannot hide in an average.</small></span></div>
+            <div><Icon name="scale" /><span><b>Evidence over urgency</b><small>The app does not earn from the sale.</small></span></div>
+          </div>
+        </section>
+
+        <section className="card quick-context active-profile-card">
+          <div className="active-profile-row">
+            <div className="section-heading compact-heading active-profile-heading">
+              <div className="section-icon"><Icon name="shield" /></div>
+              <div><span className="kicker">Active profile</span><h2>{profile.name}</h2></div>
+            </div>
+            <div className="profile-controls">
+              <select
+                className="profile-switcher"
+                aria-label="Active profile"
+                value={profile.id}
+                onChange={(event) => switchProfile(event.target.value)}
+              >
+                {profiles.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+              <button
+                className="icon-button"
+                type="button"
+                aria-label="Manage profiles"
+                aria-expanded={manageProfiles}
+                onClick={toggleProfileManager}
+              >
+                <Icon name="settings" />
+              </button>
+            </div>
+          </div>
+          <div className="context-chips">
+            <span>{profile.zip || 'ZIP not set'}</span>
+            <span>{profile.priority === 'price' ? 'Lowest price' : profile.priority === 'speed' ? 'Fastest arrival' : 'Best balance'}</span>
+            <span>{profile.currency}</span>
+            <span>{profile.memberships.length} membership{profile.memberships.length === 1 ? '' : 's'}</span>
+          </div>
+        </section>
+
+        {manageProfiles && (
+          <section className="card profile-manager">
+            <div className="section-heading">
+              <div className="section-icon"><Icon name="user" /></div>
+              <div><span className="kicker">Saved locally in this browser</span><h2>Profiles and preferences</h2></div>
+            </div>
+            <div className="profile-manager-layout">
+              <aside className="profile-list">
+                {profiles.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={item.id === profile.id ? 'selected' : ''}
+                    onClick={() => switchProfile(item.id, true)}
+                  >
+                    <span><b>{item.name}</b><small>{item.kind}</small></span>
+                    {profiles.length > 1 && (
+                      <span
+                        className="delete-profile"
+                        role="button"
+                        tabIndex={0}
+                        aria-label={`Delete ${item.name}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          deleteProfile(item.id);
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            event.stopPropagation();
+                            deleteProfile(item.id);
+                          }
+                        }}
+                      >
+                        <Icon name="trash" size={16} />
+                      </span>
+                    )}
+                  </button>
+                ))}
+                <button className="add-profile" type="button" onClick={() => createProfile('personal')}>
+                  <Icon name="plus" size={17} /> Add profile
+                </button>
+              </aside>
+
+              <div className="profile-editor">
+                <div className="grid profile-grid">
+                  <label>
+                    Profile name
+                    <input
+                      value={profileDraft.name}
+                      onChange={(event) => {
+                        setProfileDraft({ ...profileDraft, name: event.target.value });
+                        setSaveMessage('');
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Profile type
+                    <select
+                      value={profileDraft.kind}
+                      onChange={(event) => {
+                        setProfileDraft({ ...profileDraft, kind: event.target.value as ProfileKind });
+                        setSaveMessage('');
+                      }}
+                    >
+                      <option value="personal">Personal</option>
+                      <option value="work">Work</option>
+                      <option value="shared">Shared household</option>
+                      <option value="custom">Custom</option>
+                    </select>
+                  </label>
+                  <label>
+                    Shipping ZIP
+                    <input
+                      inputMode="numeric"
+                      value={profileDraft.zip}
+                      onChange={(event) => {
+                        setProfileDraft({ ...profileDraft, zip: event.target.value });
+                        setSaveMessage('');
+                      }}
+                      placeholder="17603"
+                    />
+                  </label>
+                  <label>
+                    Priority
+                    <select
+                      value={profileDraft.priority}
+                      onChange={(event) => {
+                        setProfileDraft({ ...profileDraft, priority: event.target.value as Priority });
+                        setSaveMessage('');
+                      }}
+                    >
+                      <option value="balance">Best balance</option>
+                      <option value="price">Lowest price</option>
+                      <option value="speed">Fastest arrival</option>
+                    </select>
+                  </label>
+                  <label>
+                    Currency
+                    <select
+                      value={profileDraft.currency}
+                      onChange={(event) => {
+                        setProfileDraft({ ...profileDraft, currency: event.target.value as Currency });
+                        setSaveMessage('');
+                      }}
+                    >
+                      <option value="USD">USD</option>
+                      <option value="CAD">CAD</option>
+                      <option value="GBP">GBP</option>
+                      <option value="EUR">EUR</option>
+                    </select>
+                  </label>
+                  <label>
+                    Large-purchase threshold
+                    <input
+                      type="number"
+                      min="0"
+                      value={profileDraft.threshold}
+                      onChange={(event) => {
+                        setProfileDraft({ ...profileDraft, threshold: Number(event.target.value) });
+                        setSaveMessage('');
+                      }}
+                    />
+                  </label>
+                </div>
+
+                <fieldset className="membership-fieldset">
+                  <legend>Store memberships</legend>
+                  {MEMBERSHIPS.map((name) => (
+                    <label key={name} className="check-label">
+                      <input
+                        type="checkbox"
+                        checked={profileDraft.memberships.includes(name)}
+                        onChange={() => toggleDraftMembership(name)}
+                      />
+                      {name}
+                    </label>
+                  ))}
+                </fieldset>
+
+                <div className="data-note">
+                  <Icon name="shield" size={18} />
+                  <span><b>Stored on this device only</b><small>Profiles, spaces, and history remain in this browser. No account or cloud sync is active yet.</small></span>
+                </div>
+
+                <div className="profile-save-row">
+                  <div className="save-feedback" role="status" aria-live="polite">
+                    {saveMessage || (hasUnsavedChanges ? 'You have unsaved changes.' : 'All changes are saved.')}
+                  </div>
+                  <div className="profile-save-actions">
+                    <button className="secondary" type="button" onClick={cancelProfileEdit}>Cancel</button>
+                    <button
+                      className="primary save-profile-button"
+                      type="button"
+                      disabled={!hasUnsavedChanges}
+                      onClick={saveProfilePreferences}
+                    >
+                      <Icon name="check" size={18} /> Save changes
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="card intake-card">
+          <div className="section-heading compact-heading">
+            <div className="section-icon"><Icon name="search" /></div>
+            <div><span className="kicker">Start a purchase check</span><h2>What are you considering?</h2></div>
+          </div>
+          <nav className="input-tabs" aria-label="Product input method">
+            {([
+              ['link', 'Product link', 'link'],
+              ['search', 'Search by name', 'search'],
+              ['screenshot', 'Screenshot', 'image'],
+            ] as const).map(([item, label, icon]) => (
+              <button
+                key={item}
+                type="button"
+                aria-pressed={mode === item}
+                className={mode === item ? 'active' : ''}
+                onClick={() => resetIntake(item)}
+              >
+                <Icon name={icon} size={18} /> {label}
+              </button>
+            ))}
+          </nav>
+
+          {mode === 'link' && (
+            <textarea
+              value={input}
+              onChange={(event) => { setInput(event.target.value); setIntakeDraft(null); }}
+              placeholder="Paste a full product page link"
+              disabled={loading}
+              aria-label="Product page link"

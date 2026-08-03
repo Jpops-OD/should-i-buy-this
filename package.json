@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "check": "tsc --noEmit",
-    "postinstall": "vite build",
+    "assemble": "node scripts/assemble-phase3.mjs",
+    "dev": "npm run assemble && vite",
+    "build": "npm run assemble && vite build",
+    "check": "npm run assemble && tsc --noEmit",
+    "postinstall": "npm run build",
     "deploy": "wrangler deploy"
   },
   "dependencies": {

@@ -1,0 +1,294 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import './styles.css';
+import './phase2.css';
+import './phase2-cleanup.css';
+import './phase3.css';
+
+type Offer = {
+  store: string;
+  itemPrice: number;
+  shipping: number | null;
+  deliveredPrice: number;
+  delivery: string;
+  match: string;
+};
+
+type Risk = {
+  level: 'low' | 'medium' | 'high';
+  title: string;
+  detail: string;
+};
+
+type Result = {
+  product: {
+    title: string;
+    brand?: string;
+    model?: string;
+    sku?: string;
+    variant?: string;
+    category?: string;
+    seller?: string;
+    condition?: string;
+    dimensions?: { width: number; depth: number };
+  };
+  offers: Offer[];
+  risks: Risk[];
+  summary: string;
+  status?: 'verified' | 'partial' | 'blocked' | 'unsupported' | 'intake';
+  source?: string;
+  decisionReady?: boolean;
+  intake?: ProductDraft;
+};
+
+type AppError = {
+  title: string;
+  message: string;
+  detail?: string;
+  action?: string;
+};
+
+type ProductDraft = {
+  title: string;
+  brand: string;
+  model: string;
+  sku: string;
+  variant: string;
+  category: string;
+  visiblePrice: number | null;
+  currency: string;
+  seller: string;
+  condition: string;
+  sourceUrl: string;
+  sourceName: string;
+  confidence: 'high' | 'medium' | 'low';
+  evidence: string[];
+  warnings: string[];
+};
+
+type ProfileKind = 'personal' | 'work' | 'shared' | 'custom';
+type Priority = 'balance' | 'price' | 'speed';
+type Currency = 'USD' | 'CAD' | 'GBP' | 'EUR';
+
+type Space = {
+  id: string;
+  name: string;
+  width: number;
+  depth: number;
+  doorway?: number;
+};
+
+type HistoryItem = {
+  id: string;
+  checkedAt: string;
+  title: string;
+  source?: string;
+  verdict: string;
+  score: number;
+  result: Result;
+};
+
+type Profile = {
+  id: string;
+  name: string;
+  kind: ProfileKind;
+  zip: string;
+  priority: Priority;
+  currency: Currency;
+  threshold: number;
+  memberships: string[];
+  spaces: Space[];
+  history: HistoryItem[];
+};
+
+type ProfileDraft = Pick<
+  Profile,
+  'name' | 'kind' | 'zip' | 'priority' | 'currency' | 'threshold' | 'memberships'
+>;
+
+type IconName =
+  | 'shield'
+  | 'check'
+  | 'link'
+  | 'search'
+  | 'image'
+  | 'scale'
+  | 'ruler'
+  | 'alert'
+  | 'clock'
+  | 'spark'
+  | 'arrow'
+  | 'price'
+  | 'risk'
+  | 'user'
+  | 'settings'
+  | 'plus'
+  | 'trash'
+  | 'history';
+
+const STORAGE_KEY = 'sibt-phase2-state';
+const MEMBERSHIPS = [
+  'Amazon Prime',
+  'Walmart+',
+  'Target Circle 360',
+  'Costco',
+  "Sam's Club",
+  'Best Buy Plus',
+];
+
+const uid = () =>
+  `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+
+const defaultProfile = (): Profile => ({
+  id: uid(),
+  name: 'Personal',
+  kind: 'personal',
+  zip: '',
+  priority: 'balance',
+  currency: 'USD',
+  threshold: 250,
+  memberships: [],
+  spaces: [],
+  history: [],
+});
+
+const toDraft = (profile: Profile): ProfileDraft => ({
+  name: profile.name,
+  kind: profile.kind,
+  zip: profile.zip,
+  priority: profile.priority,
+  currency: profile.currency,
+  threshold: profile.threshold,
+  memberships: [...profile.memberships],
+});
+
+function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
+  const paths: Record<IconName, React.ReactNode> = {
+    shield: <path d="M12 3 5 6v5c0 4.4 2.9 8.5 7 10 4.1-1.5 7-5.6 7-10V6l-7-3Z" />,
+    check: <path d="m7 12 3 3 7-7" />,
+    link: <><path d="M10 13a5 5 0 0 0 7.1.1l2-2a5 5 0 0 0-7.1-7.1l-1.1 1.1" /><path d="M14 11a5 5 0 0 0-7.1-.1l-2 2A5 5 0 0 0 12 20l1.1-1.1" /></>,
+    search: <><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></>,
+    image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m21 15-5-5L5 20" /></>,
+    scale: <><path d="M12 3v18M5 7h14M7 7l-4 7h8L7 7Zm10 0-4 7h8l-4-7Z" /></>,
+    ruler: <><path d="m4 16 12-12 4 4L8 20H4v-4Z" /><path d="m13 7 4 4M10 10l2 2M7 13l2 2" /></>,
+    alert: <><path d="M12 3 2.8 19h18.4L12 3Z" /><path d="M12 9v4M12 17h.01" /></>,
+    clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    spark: <><path d="m12 3 1.4 4.1L17.5 8.5l-4.1 1.4L12 14l-1.4-4.1-4.1-1.4 4.1-1.4L12 3Z" /><path d="m18.5 14 .8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2Z" /></>,
+    arrow: <path d="m9 18 6-6-6-6" />,
+    price: <><path d="M12 2v20M17 6.5c-1-1-2.5-1.5-4.4-1.5-2.3 0-4.1 1.1-4.1 3 0 4.5 9 2.2 9 7 0 2-1.8 3.5-4.5 3.5-2 0-3.8-.7-5-2" /></>,
+    risk: <><path d="M12 3 5 6v5c0 4.4 2.9 8.5 7 10 4.1-1.5 7-5.6 7-10V6l-7-3Z" /><path d="M12 8v5M12 16h.01" /></>,
+    user: <><circle cx="12" cy="8" r="4" /><path d="M4 21c.8-4.2 3.5-6.5 8-6.5s7.2 2.3 8 6.5" /></>,
+    settings: <><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1A1.7 1.7 0 0 0 4.3 7l-.1-.1L7 4.2l.1.1A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></>,
+    plus: <path d="M12 5v14M5 12h14" />,
+    trash: <><path d="M4 7h16M9 7V4h6v3M7 7l1 14h8l1-14" /></>,
+    history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></>,
+  };
+
+  return (
+    <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      {paths[name]}
+    </svg>
+  );
+}
+
+const sample: Result = {
+  product: {
+    title: 'Ridgeway 60-inch Acacia Patio Dining Table',
+    category: 'Outdoor furniture',
+    dimensions: { width: 60, depth: 35 },
+  },
+  offers: [
+    { store: 'Walmart', itemPrice: 288, shipping: 0, deliveredPrice: 288, delivery: '3 days', match: 'Exact' },
+    { store: 'Amazon', itemPrice: 279, shipping: 29.99, deliveredPrice: 308.99, delivery: '2 days', match: 'Exact' },
+    { store: 'Target', itemPrice: 309.99, shipping: 0, deliveredPrice: 309.99, delivery: '5 days', match: 'Likely' },
+  ],
+  risks: [
+    { level: 'low', title: 'Two exact matches found', detail: 'The same model appears at more than one store.' },
+    { level: 'medium', title: 'Marketplace seller', detail: 'One offer may have a different return process.' },
+  ],
+  summary: 'Walmart is the best balance of delivered price, delivery speed, and seller confidence.',
+  status: 'verified',
+};
+
+const money = (value: number, currency: string) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(value);
+
+function getScores(result: Result, fit: number | null) {
+  const compare = Math.min(
+    100,
+    45 + result.offers.length * 12 + result.offers.filter((offer) => offer.match === 'Exact').length * 8,
+  );
+  const risk = Math.max(
+    10,
+    100 - result.risks.reduce(
+      (total, item) => total + (item.level === 'high' ? 35 : item.level === 'medium' ? 15 : 5),
+      0,
+    ),
+  );
+  let overall = fit == null
+    ? Math.round(compare * 0.65 + risk * 0.35)
+    : Math.round(compare * 0.5 + fit * 0.25 + risk * 0.25);
+  if (result.risks.some((item) => item.level === 'high')) overall = Math.min(overall, 59);
+  return {
+    compare,
+    risk,
+    overall,
+    verdict: overall >= 82
+      ? 'Strong Buy'
+      : overall >= 70
+        ? 'Worth Considering'
+        : overall >= 55
+          ? 'Wait'
+          : overall >= 35
+            ? 'Probably Skip'
+            : 'Do Not Buy',
+  };
+}
+
+function normalizeError(status: number, payload: any): AppError {
+  const code = payload?.code;
+  if (code === 'RETAILER_BLOCKED' || status === 403) {
+    return {
+      title: 'This retailer blocked the automated check',
+      message: 'The app is working, but this store would not allow us to read the public product page.',
+      detail: 'Try another retailer link for the same item.',
+      action: 'Try another product link',
+    };
+  }
+  if (code === 'UNSUPPORTED_INPUT') {
+    return {
+      title: 'That option is not connected yet',
+      message: payload?.error || 'This version currently supports direct public product links.',
+      detail: 'The sample assessment remains available while product search and screenshot intake are built.',
+      action: 'Use a direct product link',
+    };
+  }
+  if (code === 'INVALID_URL' || (!code && status === 400)) {
+    return {
+      title: 'That does not look like a product link',
+      message: payload?.error || 'Paste the full address from the retailer product page.',
+      action: 'Check the link and try again',
+    };
+  }
+  if (code === 'PRICE_NOT_FOUND') {
+    return {
+      title: 'The product was found, but the price was hidden',
+      message: payload?.error || 'This store did not expose a public price we could verify.',
+      detail: 'No recommendation was created from guessed pricing.',
+      action: 'Try another retailer link',
+    };
+  }
+  if (code === 'UNSUPPORTED_FILE' || code === 'IMAGE_TOO_LARGE') {
+    return {
+      title: code === 'IMAGE_TOO_LARGE' ? 'That screenshot is too large' : 'That file type is not supported',
+      message: payload?.error || 'Choose a PNG, JPG, WebP, GIF, or BMP image smaller than 8 MB.',
+      action: 'Choose another screenshot',
+    };
+  }
+  if (code === 'AI_UNAVAILABLE') {
+    return {
+      title: 'Screenshot reading is temporarily unavailable',
+      message: payload?.error || 'The image could not be read right now.',
+      detail: 'The product link and name/model options are still available.',
+      action: 'Try again or use another input method',
+    };
