@@ -8,11 +8,11 @@ type Env = {
 };
 
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  async fetch(request: Request, env: Env) {
     const url = new URL(request.url);
     if (url.pathname === '/api/visual-search' && request.method === 'POST') {
       return handleVisualSearch(request, env);
     }
-    return baseWorker.fetch(request, env, ctx);
+    return baseWorker.fetch(request, env);
   },
 };
