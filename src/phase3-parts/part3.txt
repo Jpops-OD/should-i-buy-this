@@ -1,0 +1,294 @@
+            />
+          )}
+
+          {mode === 'search' && (
+            <div className="search-intake">
+              <label>
+                Product name, model, or identifying details
+                <textarea
+                  value={input}
+                  onChange={(event) => { setInput(event.target.value); setIntakeDraft(null); }}
+                  placeholder="Example: Sony WH-1000XM6 black wireless headphones"
+                  disabled={loading}
+                />
+              </label>
+              <p className="field-help">Include the brand, model number, size, color, capacity, or other variant details when you know them.</p>
+            </div>
+          )}
+
+          {mode === 'screenshot' && (
+            <div className="screenshot-intake">
+              <label className="upload-box">
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+                  disabled={loading}
+                  onChange={(event) => {
+                    const file = event.target.files?.[0] || null;
+                    setScreenshotFile(file);
+                    setIntakeDraft(null);
+                    setError(null);
+                    if (screenshotPreview) URL.revokeObjectURL(screenshotPreview);
+                    setScreenshotPreview(file ? URL.createObjectURL(file) : '');
+                  }}
+                />
+                <Icon name="image" size={28} />
+                <span><b>{screenshotFile ? screenshotFile.name : 'Choose a product screenshot'}</b><small>PNG, JPG, WebP, GIF, or BMP. Maximum 8 MB.</small></span>
+              </label>
+              {screenshotPreview && <img className="screenshot-preview" src={screenshotPreview} alt="Selected product screenshot preview" />}
+            </div>
+          )}
+
+          {!intakeDraft && (
+            <div className="action-stack">
+              <button
+                className="primary"
+                type="button"
+                disabled={loading || (mode === 'screenshot' ? !screenshotFile : input.trim().length < 3)}
+                onClick={identifyProduct}
+              >
+                {loading
+                  ? <><span className="spinner compact" /> Reading product details…</>
+                  : <><Icon name="search" /> Identify this product <Icon name="arrow" size={18} /></>}
+              </button>
+              <button className="secondary" type="button" disabled={loading} onClick={() => analyze(true)}>
+                <Icon name="spark" size={18} /> Try sample assessment
+              </button>
+            </div>
+          )}
+
+          {loading && <div className="loading"><span className="spinner" />{mode === 'screenshot' ? 'Reading the screenshot and extracting product details…' : mode === 'search' ? 'Organizing the product name and model details…' : 'Reading the product page and extracting what can be verified…'}</div>}
+
+          {intakeDraft && (
+            <section className="intake-confirmation" aria-labelledby="confirm-product-heading">
+              <div className="confirmation-heading">
+                <span className={`confidence-badge ${intakeDraft.confidence}`}><Icon name={intakeDraft.confidence === 'high' ? 'check' : 'alert'} size={15} /> {intakeDraft.confidence} confidence</span>
+                <div><span className="kicker">Review before continuing</span><h3 id="confirm-product-heading">Confirm the product details</h3><p>Correct anything that was read incorrectly. These details become the product identity used for research.</p></div>
+              </div>
+              <div className="grid confirmation-grid">
+                <label className="wide-field">Product title<input value={intakeDraft.title} onChange={(event) => updateIntake({ title: event.target.value })} /></label>
+                <label>Brand<input value={intakeDraft.brand} onChange={(event) => updateIntake({ brand: event.target.value })} /></label>
+                <label>Model<input value={intakeDraft.model} onChange={(event) => updateIntake({ model: event.target.value })} /></label>
+                <label>SKU / UPC / ISBN<input value={intakeDraft.sku} onChange={(event) => updateIntake({ sku: event.target.value })} /></label>
+                <label>Variant<input value={intakeDraft.variant} onChange={(event) => updateIntake({ variant: event.target.value })} placeholder="Color, size, capacity…" /></label>
+                <label>Category<input value={intakeDraft.category} onChange={(event) => updateIntake({ category: event.target.value })} /></label>
+                <label>Visible price<input type="number" min="0" step="0.01" value={intakeDraft.visiblePrice ?? ''} onChange={(event) => updateIntake({ visiblePrice: event.target.value === '' ? null : Number(event.target.value) })} /></label>
+                <label>Currency<select value={intakeDraft.currency || profile.currency} onChange={(event) => updateIntake({ currency: event.target.value })}><option value="USD">USD</option><option value="CAD">CAD</option><option value="GBP">GBP</option><option value="EUR">EUR</option></select></label>
+                <label>Seller or retailer<input value={intakeDraft.seller} onChange={(event) => updateIntake({ seller: event.target.value })} /></label>
+                <label>Condition<select value={intakeDraft.condition} onChange={(event) => updateIntake({ condition: event.target.value })}><option value="New">New</option><option value="Used">Used</option><option value="Refurbished">Refurbished</option><option value="Open box">Open box</option><option value="Unknown">Unknown</option></select></label>
+              </div>
+              {(intakeDraft.evidence.length > 0 || intakeDraft.warnings.length > 0) && (
+                <div className="intake-notes">
+                  {intakeDraft.evidence.length > 0 && <div className="evidence-list"><b>What was found</b>{intakeDraft.evidence.map((item) => <span key={item}><Icon name="check" size={15} /> {item}</span>)}</div>}
+                  {intakeDraft.warnings.length > 0 && <div className="warning-list"><b>Still needs confirmation</b>{intakeDraft.warnings.map((item) => <span key={item}><Icon name="alert" size={15} /> {item}</span>)}</div>}
+                </div>
+              )}
+              <div className="confirmation-actions">
+                <button className="secondary" type="button" disabled={loading} onClick={() => setIntakeDraft(null)}>Start over</button>
+                <button className="primary" type="button" disabled={loading || !intakeDraft.title.trim()} onClick={() => analyze(false)}><Icon name="check" /> Use these details</button>
+              </div>
+            </section>
+          )}
+
+          {error && (
+            <div className="error-card" role="alert">
+              <span className="notice-icon"><Icon name="alert" /></span>
+              <span><strong>{error.title}</strong><p>{error.message}</p>{error.detail && <small>{error.detail}</small>}{error.action && <b className="error-action">Next: {error.action}</b>}</span>
+            </div>
+          )}
+        </section>
+
+        <section className="card history-card">
+          <div className="section-heading compact-heading">
+            <div className="section-icon"><Icon name="history" /></div>
+            <div><span className="kicker">Saved for {profile.name}</span><h2>Recent checks</h2></div>
+          </div>
+          {profile.history.length === 0
+            ? <div className="empty-state"><Icon name="history" /><span><b>No checks saved yet.</b><small>Completed assessments will appear here for this profile.</small></span></div>
+            : <>
+              <div className="history-list">
+                {profile.history.slice(0, 6).map((item) => (
+                  <button key={item.id} type="button" onClick={() => reopenHistory(item)}>
+                    <span><b>{item.title}</b><small>{new Date(item.checkedAt).toLocaleDateString()} · {item.verdict}</small></span>
+                    <strong>{item.score || 'ID'}</strong>
+                  </button>
+                ))}
+              </div>
+              <button className="text-danger" type="button" onClick={clearHistory}>Clear {profile.name} history</button>
+            </>}
+        </section>
+      </main>
+    );
+  }
+
+  const best = result.offers.length
+    ? [...result.offers].sort((a, b) => a.deliveredPrice - b.deliveredPrice)[0]
+    : null;
+
+  return (
+    <main>
+      <header className="site-header results-header">
+        <button className="back-button" type="button" onClick={resetCheck}>← New check</button>
+        <Brand />
+        <span className="result-profile"><Icon name="user" size={16} /> {profile.name}</span>
+      </header>
+
+      <section className="title">
+        <div>
+          <div className="eyebrow"><Icon name="scale" size={16} /> PURCHASE ASSESSMENT</div>
+          <h1>{result.product.title}</h1>
+          <p>{result.product.category || 'Product comparison'}</p>
+          <div className={`status-pill ${result.status === 'verified' ? 'success' : 'warning'}`}>
+            <Icon name={result.status === 'verified' || result.status === 'intake' ? 'check' : 'alert'} size={16} />
+            {result.status === 'verified' ? 'Verified sample result' : result.status === 'intake' ? 'Product identified' : 'Partial verification'}
+          </div>
+        </div>
+        <div className={`score ${decisionReady ? verdictTone : 'warning'}`}>
+          <span className="score-label">{decisionReady ? 'Overall' : 'Status'}</span>
+          <strong>{decisionReady ? scores?.overall : '—'}</strong>
+          <span>{decisionReady ? scores?.verdict : 'Research needed'}</span>
+        </div>
+      </section>
+
+      {result.status === 'partial' && (
+        <div className="notice warning">
+          <span className="notice-icon"><Icon name="alert" /></span>
+          <span><b>Partial verification</b><small>Only information exposed by the submitted retailer was used. No missing price or shipping data was guessed.</small></span>
+        </div>
+      )}
+
+      <nav className="tabs">
+        {([
+          ['overall', 'Overall', 'scale'],
+          ['compare', 'Compare', 'price'],
+          ['fit', 'Fit', 'ruler'],
+          ['risk', 'Risk', 'risk'],
+        ] as const).map(([item, label, icon]) => (
+          <button key={item} type="button" className={tab === item ? 'active' : ''} onClick={() => setTab(item)}>
+            <Icon name={icon} size={17} /> {label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'overall' && (
+        <section className="card">
+          {decisionReady ? (
+            <>
+              <div className="metrics">
+                <article><span className="metric-icon info"><Icon name="price" /></span><span>Best option</span><b>{best?.store || 'Not enough data'}</b><small>{best ? `${money(best.deliveredPrice, profile.currency)} before unverified shipping` : 'No verified price found'}</small></article>
+                <article><span className="metric-icon info"><Icon name="scale" /></span><span>Comparison</span><b>{scores?.compare}/100</b><small>{result.offers.length} verified offer{result.offers.length === 1 ? '' : 's'}</small></article>
+                <article><span className={`metric-icon ${scores && scores.risk >= 75 ? 'success' : scores && scores.risk >= 50 ? 'warning' : 'danger'}`}><Icon name="risk" /></span><span>Risk protection</span><b>{scores?.risk}/100</b><small>{best && best.deliveredPrice >= profile.threshold ? `Above ${money(profile.threshold, profile.currency)} review threshold` : 'Within current profile threshold'}</small></article>
+              </div>
+              <div className={`callout ${verdictTone}`}><span className="callout-icon"><Icon name={verdictTone === 'success' ? 'check' : verdictTone === 'warning' ? 'clock' : 'alert'} size={24} /></span><div><span className="kicker">Recommendation</span><h2>{scores?.verdict}</h2><p>{result.summary}</p></div></div>
+            </>
+          ) : (
+            <>
+              <div className="metrics intake-metrics">
+                <article><span className="metric-icon success"><Icon name="check" /></span><span>Product identity</span><b>Confirmed</b><small>{[result.product.brand, result.product.model].filter(Boolean).join(' ') || result.product.title}</small></article>
+                <article><span className="metric-icon info"><Icon name="price" /></span><span>Visible price</span><b>{best ? money(best.itemPrice, profile.currency) : 'Not found'}</b><small>{best ? `From ${best.store}` : 'No price was used or guessed'}</small></article>
+                <article><span className="metric-icon warning"><Icon name="search" /></span><span>Decision status</span><b>Research next</b><small>Cross-store comparison is completed in Phase 4.</small></article>
+              </div>
+              <div className="callout warning"><span className="callout-icon"><Icon name="clock" size={24} /></span><div><span className="kicker">Intake complete</span><h2>Product identified</h2><p>{result.summary}</p></div></div>
+            </>
+          )}
+        </section>
+      )}
+
+      {tab === 'compare' && (
+        <section className="card">
+          <div className="section-heading compact-heading">
+            <div className="section-icon"><Icon name="price" /></div>
+            <div><span className="kicker">Verified listings</span><h2>Price comparison</h2></div>
+          </div>
+          {result.offers.length === 0
+            ? <div className="empty-state"><Icon name="search" /><span><b>No verified offers were returned.</b><small>The app will not invent comparison prices.</small></span></div>
+            : result.offers.map((offer, index) => (
+              <article className="offer" key={`${offer.store}-${offer.deliveredPrice}`}>
+                <div className="offer-store">
+                  <span className="offer-rank">{index + 1}</span>
+                  <span><b>{offer.store}</b><small className={`match ${offer.match === 'Exact' ? 'success' : 'warning'}`}><Icon name={offer.match === 'Exact' ? 'check' : 'alert'} size={14} /> {offer.match} match</small></span>
+                </div>
+                <div><span className="data-label">Item</span><b>{money(offer.itemPrice, profile.currency)}</b></div>
+                <div><span className="data-label">Shipping</span><b>{offer.shipping === 0 ? 'Free' : offer.shipping == null ? 'Not verified' : money(offer.shipping, profile.currency)}</b></div>
+                <div><span className="data-label">Listed total</span><strong>{money(offer.deliveredPrice, profile.currency)}</strong></div>
+                <div><span className="data-label">Arrival</span><b>{offer.delivery}</b></div>
+              </article>
+            ))}
+        </section>
+      )}
+
+      {tab === 'fit' && (
+        <section className="card">
+          <div className="section-heading compact-heading">
+            <div className="section-icon"><Icon name="ruler" /></div>
+            <div><span className="kicker">Saved for {profile.name}</span><h2>Will it fit?</h2></div>
+          </div>
+          {profile.spaces.length > 0 && (
+            <label className="saved-space-select">
+              Use a saved space
+              <select value={selectedSpaceId} onChange={(event) => loadSpace(event.target.value)}>
+                <option value="">Choose a saved space</option>
+                {profile.spaces.map((item) => <option key={item.id} value={item.id}>{item.name} · {item.width} × {item.depth}</option>)}
+              </select>
+            </label>
+          )}
+          <div className="grid fit-grid">
+            <label>Space name<input value={space.name} onChange={(event) => setSpace({ ...space, name: event.target.value })} /></label>
+            <label>Maximum width<input type="number" min="1" value={space.width} onChange={(event) => setSpace({ ...space, width: Number(event.target.value) })} /></label>
+            <label>Maximum depth<input type="number" min="1" value={space.depth} onChange={(event) => setSpace({ ...space, depth: Number(event.target.value) })} /></label>
+            <label>Doorway width<input type="number" min="0" value={space.doorway} onChange={(event) => setSpace({ ...space, doorway: Number(event.target.value) })} /></label>
+          </div>
+          <div className="fit-actions">
+            <button className="primary fit-button" type="button" onClick={() => {
+              const dimensions = result.product.dimensions;
+              setFit(!dimensions ? 45 : dimensions.width > space.width || dimensions.depth > space.depth ? 18 : 92);
+            }}>
+              <Icon name="ruler" /> Check fit
+            </button>
+            <button className="secondary" type="button" onClick={saveSpace}><Icon name="plus" size={17} /> Save this space</button>
+          </div>
+          {fit != null && (
+            <div className={`fit-result ${fit < 40 ? 'danger' : fit < 70 ? 'warning' : 'success'}`}>
+              <span className="notice-icon"><Icon name={fit < 40 ? 'alert' : fit < 70 ? 'clock' : 'check'} /></span>
+              <span><b>{fit >= 80 ? 'Fits within the entered space.' : fit >= 40 ? 'Product dimensions were not fully verified.' : 'The item is larger than the entered space.'}</b><small>Fit score: {fit}/100</small></span>
+            </div>
+          )}
+          {profile.spaces.length > 0 && (
+            <div className="saved-spaces">
+              <h3>Saved spaces</h3>
+              {profile.spaces.map((item) => (
+                <div key={item.id}>
+                  <button type="button" onClick={() => loadSpace(item.id)}>{item.name} · {item.width} × {item.depth}</button>
+                  <button type="button" aria-label={`Delete ${item.name}`} onClick={() => removeSpace(item.id)}><Icon name="trash" size={16} /></button>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
+      {tab === 'risk' && (
+        <section className="card">
+          <div className="section-heading compact-heading">
+            <div className="section-icon"><Icon name="risk" /></div>
+            <div><span className="kicker">Purchase protection</span><h2>Risk review</h2></div>
+          </div>
+          <div className="risk-list">
+            {result.risks.map((risk, index) => (
+              <article className={`risk ${risk.level}`} key={`${risk.title}-${index}`}>
+                <span className="notice-icon"><Icon name={risk.level === 'low' ? 'check' : risk.level === 'medium' ? 'clock' : 'alert'} /></span>
+                <div>
+                  <span className={`status-pill ${risk.level === 'low' ? 'success' : risk.level === 'medium' ? 'warning' : 'danger'}`}>{risk.level === 'low' ? 'Low risk' : risk.level === 'medium' ? 'Review needed' : 'High risk'}</span>
+                  <b>{risk.title}</b>
+                  <p>{risk.detail}</p>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(<App />);
