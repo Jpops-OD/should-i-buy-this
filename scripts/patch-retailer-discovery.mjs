@@ -3,6 +3,11 @@ import { readFile, writeFile } from 'node:fs/promises';
 const workerFile = new URL('../worker/research.ts', import.meta.url);
 let worker = await readFile(workerFile, 'utf8');
 
+if (worker.includes('function searchQueries(product: ProductDraft)')) {
+  console.log('Improved retailer discovery queries already applied');
+  process.exit(0);
+}
+
 function replaceOnce(find, replacement, label) {
   if (!worker.includes(find)) throw new Error(`Retailer discovery patch failed: ${label}`);
   worker = worker.replace(find, replacement);
