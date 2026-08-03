@@ -9,7 +9,6 @@ type ProductDraft = {
 
 type ResearchRequest = {
   product?: ProductDraft;
-  listingUrls?: string[];
   zip?: string;
   priority?: 'balance' | 'price' | 'speed';
   currency?: string;
@@ -28,6 +27,26 @@ type Offer = {
   condition: string; availability: string; priceVerified: boolean;
   shippingVerified: boolean; checkedAt: string; matchReason: string;
 };
+
+type RetailerAdapter = {
+  name: string;
+  host: string;
+  searchUrl: (query: string) => string;
+  productPath: RegExp;
+};
+
+const RETAILERS: RetailerAdapter[] = [
+  { name: 'Walmart', host: 'walmart.com', searchUrl: (q) => `https://www.walmart.com/search?q=${encodeURIComponent(q)}`, productPath: /^\/ip\//i },
+  { name: 'Best Buy', host: 'bestbuy.com', searchUrl: (q) => `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(q)}`, productPath: /\/product\//i },
+  { name: "Kohl's", host: 'kohls.com', searchUrl: (q) => `https://www.kohls.com/search.jsp?submit-search=web-regular&search=${encodeURIComponent(q)}`, productPath: /\/product\/prd-/i },
+  { name: 'Staples', host: 'staples.com', searchUrl: (q) => `https://www.staples.com/${encodeURIComponent(q)}/directory_${encodeURIComponent(q)}`, productPath: /\/product_/i },
+  { name: 'Target', host: 'target.com', searchUrl: (q) => `https://www.target.com/s?searchTerm=${encodeURIComponent(q)}`, productPath: /\/p\//i },
+  { name: 'Amazon', host: 'amazon.com', searchUrl: (q) => `https://www.amazon.com/s?k=${encodeURIComponent(q)}`, productPath: /\/dp\//i },
+  { name: 'Home Depot', host: 'homedepot.com', searchUrl: (q) => `https://www.homedepot.com/s/${encodeURIComponent(q)}`, productPath: /\/p\//i },
+  { name: "Lowe's", host: 'lowes.com', searchUrl: (q) => `https://www.lowes.com/search?searchTerm=${encodeURIComponent(q)}`, productPath: /\/pd\//i },
+  { name: 'Macy’s', host: 'macys.com', searchUrl: (q) => `https://www.macys.com/shop/featured/${encodeURIComponent(q)}`, productPath: /\/shop\/product\//i },
+  { name: 'Wayfair', host: 'wayfair.com', searchUrl: (q) => `https://www.wayfair.com/keyword.php?keyword=${encodeURIComponent(q)}`, productPath: /\.html/i },
+];
 
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status,
@@ -64,7 +83,10 @@ const hostname = (value: string) => {
 };
 
 const storeName = (value: string) => {
-  const label = hostname(value).split('.')[0] || 'Retailer';
+  const host = hostname(value);
+  const configured = RETAILERS.find((retailer) => host === retailer.host || host.endsWith(`.${retailer.host}`));
+  if (configured) return configured.name;
+  const label = host.split('.')[0] || 'Retailer';
   return label.replace(/[-_]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
 
@@ -156,29 +178,23 @@ function parseJsonLd(html: string): PageProduct | null {
       const shippingDetails = first(offer.shippingDetails);
       const shippingRate = shippingDetails?.shippingRate;
       return {
-        title: clean(product.name, 260),
-        brand: stringValue(product.brand),
+        title: clean(product.name, 260), brand: stringValue(product.brand),
         model: clean(product.model || product.mpn, 120),
         sku: clean(product.sku || product.gtin14 || product.gtin13 || product.gtin12 || product.gtin8 || product.gtin, 120),
         variant: clean(product.color || product.size || product.material, 160),
         price: parsePrice(offer.price ?? offer.lowPrice ?? offer.highPrice),
-        currency: clean(offer.priceCurrency, 3).toUpperCase() || 'USD',
-        seller: stringValue(offer.seller || product.seller),
+        currency: clean(offer.priceCurrency, 3).toUpperCase() || 'USD', seller: stringValue(offer.seller || product.seller),
         condition: stringValue(offer.itemCondition || product.itemCondition).split('/').pop() || 'Unknown',
         availability: stringValue(offer.availability).split('/').pop() || 'Unknown',
         shipping: parsePrice(shippingRate?.value ?? shippingRate),
-        delivery: shippingDetails?.deliveryTime?.transitTime?.maxValue
-          ? `Up to ${clean(shippingDetails.deliveryTime.transitTime.maxValue, 20)} days`
-          : 'Confirm at checkout',
+        delivery: shippingDetails?.deliveryTime?.transitTime?.maxValue ? `Up to ${clean(shippingDetails.deliveryTime.transitTime.maxValue, 20)} days` : 'Confirm at checkout',
       };
     }
   }
   return null;
 }
 
-function pick(html: string, expression: RegExp) {
-  return clean(html.match(expression)?.[1] || '');
-}
+function pick(html: string, expression: RegExp) { return clean(html.match(expression)?.[1] || ''); }
 
 function parsePage(html: string, url: string): PageProduct {
   const structured = parseJsonLd(html);
@@ -186,31 +202,24 @@ function parsePage(html: string, url: string): PageProduct {
     title: structured?.title || pick(html, /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || pick(html, /<title[^>]*>([^<]+)/i),
     brand: structured?.brand || pick(html, /"brand"\s*:\s*(?:\{[^}]*"name"\s*:\s*)?"([^"]+)"/i),
     model: structured?.model || pick(html, /"(?:model|mpn)"\s*:\s*"([^"]+)"/i),
-    sku: structured?.sku || pick(html, /"(?:sku|gtin13|gtin12|gtin)"\s*:\s*"([^"]+)"/i),
-    variant: structured?.variant || '',
+    sku: structured?.sku || pick(html, /"(?:sku|gtin13|gtin12|gtin)"\s*:\s*"([^"]+)"/i), variant: structured?.variant || '',
     price: structured?.price ?? parsePrice(pick(html, /<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([^"']+)/i) || pick(html, /"price"\s*:\s*"?([0-9,.]+)/i)),
     currency: structured?.currency || pick(html, /"priceCurrency"\s*:\s*"([A-Z]{3})"/i) || 'USD',
-    seller: structured?.seller || storeName(url),
-    condition: structured?.condition || 'Unknown',
-    availability: structured?.availability || 'Unknown',
-    shipping: structured?.shipping ?? null,
-    delivery: structured?.delivery || 'Confirm at checkout',
+    seller: structured?.seller || storeName(url), condition: structured?.condition || 'Unknown', availability: structured?.availability || 'Unknown',
+    shipping: structured?.shipping ?? null, delivery: structured?.delivery || 'Confirm at checkout',
   };
 }
 
-async function fetchWithTimeout(url: string) {
+async function fetchWithTimeout(url: string, timeout = 8000) {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), timeout);
   try {
     return await fetch(url, {
       headers: {
-        'user-agent': 'Mozilla/5.0 (compatible; ShouldIBuyThis/1.0)',
-        accept: 'text/html,application/xhtml+xml',
-        'accept-language': 'en-US,en;q=0.9',
+        'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/131 Safari/537.36',
+        accept: 'text/html,application/xhtml+xml', 'accept-language': 'en-US,en;q=0.9',
       },
-      redirect: 'follow',
-      signal: controller.signal,
-      cf: { cacheTtl: 0 },
+      redirect: 'follow', signal: controller.signal, cf: { cacheTtl: 0 },
     });
   } finally { clearTimeout(timer); }
 }
@@ -219,10 +228,9 @@ function sourceOffer(product: ProductDraft, checkedAt: string): Offer | null {
   if (product.visiblePrice == null || !product.sourceUrl || !validPublicUrl(product.sourceUrl)) return null;
   const store = product.seller || product.sourceName || storeName(product.sourceUrl);
   return {
-    store, itemPrice: product.visiblePrice, shipping: null, deliveredPrice: product.visiblePrice,
-    delivery: 'Confirm at checkout', match: 'Exact', url: product.sourceUrl, seller: store,
-    condition: product.condition || 'Unknown', availability: 'Confirm on listing', priceVerified: true,
-    shippingVerified: false, checkedAt, matchReason: 'This product and visible price were confirmed during intake.',
+    store, itemPrice: product.visiblePrice, shipping: null, deliveredPrice: product.visiblePrice, delivery: 'Confirm at checkout',
+    match: 'Exact', url: product.sourceUrl, seller: store, condition: product.condition || 'Unknown', availability: 'Confirm on listing',
+    priceVerified: true, shippingVerified: false, checkedAt, matchReason: 'This product and visible price were confirmed during intake.',
   };
 }
 
@@ -237,13 +245,47 @@ async function inspectUrl(url: string, product: ProductDraft, checkedAt: string)
     const matched = matchProduct(product, page);
     if (!matched.accepted) return { rejected: host };
     return { offer: {
-      store: storeName(url), itemPrice: page.price, shipping: page.shipping,
-      deliveredPrice: page.price + (page.shipping ?? 0), delivery: page.delivery,
-      match: matched.match, url, seller: page.seller || storeName(url),
-      condition: page.condition || 'Unknown', availability: page.availability || 'Unknown',
-      priceVerified: true, shippingVerified: page.shipping != null, checkedAt, matchReason: matched.reason,
+      store: storeName(url), itemPrice: page.price, shipping: page.shipping, deliveredPrice: page.price + (page.shipping ?? 0),
+      delivery: page.delivery, match: matched.match, url, seller: page.seller || storeName(url), condition: page.condition || 'Unknown',
+      availability: page.availability || 'Unknown', priceVerified: true, shippingVerified: page.shipping != null, checkedAt, matchReason: matched.reason,
     } satisfies Offer };
   } catch { return { failed: host }; }
+}
+
+function absoluteRetailerUrl(href: string, adapter: RetailerAdapter) {
+  try {
+    const decoded = href.replace(/&amp;/g, '&').replace(/\\u0026/g, '&').replace(/\\u002F/g, '/');
+    const url = new URL(decoded, `https://www.${adapter.host}`);
+    const host = url.hostname.toLowerCase().replace(/^www\./, '');
+    if (!(host === adapter.host || host.endsWith(`.${adapter.host}`))) return '';
+    if (!adapter.productPath.test(url.pathname)) return '';
+    url.hash = '';
+    ['utm_source','utm_medium','utm_campaign','ref','ref_','gad_source','gclid','cid','CID'].forEach((key) => url.searchParams.delete(key));
+    return url.toString();
+  } catch { return ''; }
+}
+
+function extractProductUrls(html: string, adapter: RetailerAdapter) {
+  const values = [...html.matchAll(/(?:href|url|canonicalUrl)[=:]\s*["']([^"']+)["']/gi)].map((match) => match[1]);
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  for (const value of values) {
+    const url = absoluteRetailerUrl(value, adapter);
+    if (!url || seen.has(url)) continue;
+    seen.add(url); urls.push(url);
+    if (urls.length >= 4) break;
+  }
+  return urls;
+}
+
+async function discoverRetailer(adapter: RetailerAdapter, query: string) {
+  try {
+    const response = await fetchWithTimeout(adapter.searchUrl(query), 7000);
+    if ([401, 403, 429].includes(response.status)) return { adapter, urls: [] as string[], blocked: true };
+    if (!response.ok) return { adapter, urls: [] as string[], failed: true };
+    const html = (await response.text()).slice(0, 1_500_000);
+    return { adapter, urls: extractProductUrls(html, adapter) };
+  } catch { return { adapter, urls: [] as string[], failed: true }; }
 }
 
 function uniqueOffers(offers: Offer[]) {
@@ -251,8 +293,7 @@ function uniqueOffers(offers: Offer[]) {
   return offers.filter((offer) => {
     const key = `${hostname(offer.url)}|${offer.itemPrice}|${normalize(offer.condition)}`;
     if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
+    seen.add(key); return true;
   }).sort((a, b) => a.deliveredPrice - b.deliveredPrice);
 }
 
@@ -265,57 +306,47 @@ export async function handleResearch(request: Request, _env: ResearchEnv, _ctx: 
   let body: ResearchRequest;
   try { body = await request.json(); }
   catch { return json({ code: 'INVALID_REQUEST', error: 'The research request could not be read.' }, 400); }
-
   const product = body.product;
   if (!product?.title?.trim()) return json({ code: 'PRODUCT_REQUIRED', error: 'Confirm a product before comparing listings.' }, 400);
 
   const checkedAt = new Date().toISOString();
-  const submitted = Array.isArray(body.listingUrls) ? body.listingUrls : [];
-  const urls = [...new Set([product.sourceUrl, ...submitted].map((value) => clean(value, 1500)).filter((value) => value && validPublicUrl(value)))].slice(0, 10);
+  const query = searchQuery(product);
   const offers: Offer[] = [];
   const initial = sourceOffer(product, checkedAt);
   if (initial) offers.push(initial);
 
-  const inspections = await Promise.all(urls.filter((url) => url !== product.sourceUrl || !initial).map((url) => inspectUrl(url, product, checkedAt)));
-  const blockedStores: string[] = [];
-  const failedStores: string[] = [];
+  const sourceHost = hostname(product.sourceUrl);
+  const adapters = RETAILERS.filter((adapter) => !(sourceHost === adapter.host || sourceHost.endsWith(`.${adapter.host}`)));
+  const discoveries = await Promise.all(adapters.map((adapter) => discoverRetailer(adapter, query)));
+  const blockedStores = discoveries.filter((item) => item.blocked).map((item) => item.adapter.name);
+  const failedStores = discoveries.filter((item) => item.failed).map((item) => item.adapter.name);
+  const candidateUrls = [...new Set(discoveries.flatMap((item) => item.urls))].slice(0, 18);
+  const inspections = await Promise.all(candidateUrls.map((url) => inspectUrl(url, product, checkedAt)));
   const rejectedStores: string[] = [];
   for (const item of inspections) {
     if ('offer' in item && item.offer) offers.push(item.offer);
-    if ('blocked' in item && item.blocked) blockedStores.push(item.blocked);
-    if ('failed' in item && item.failed) failedStores.push(item.failed);
-    if ('rejected' in item && item.rejected) rejectedStores.push(item.rejected);
+    if ('blocked' in item && item.blocked) blockedStores.push(storeName(`https://${item.blocked}`));
+    if ('failed' in item && item.failed) failedStores.push(storeName(`https://${item.failed}`));
+    if ('rejected' in item && item.rejected) rejectedStores.push(storeName(`https://${item.rejected}`));
   }
 
   const verified = uniqueOffers(offers);
   const decisionReady = verified.length >= 2;
-  const query = searchQuery(product);
-  const searchLinks = {
-    google: `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(query)}`,
-    bing: `https://www.bing.com/shop?q=${encodeURIComponent(query)}`,
-    walmart: `https://www.walmart.com/search?q=${encodeURIComponent(query)}`,
-    target: `https://www.target.com/s?searchTerm=${encodeURIComponent(query)}`,
-    bestBuy: `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}`,
-    amazon: `https://www.amazon.com/s?k=${encodeURIComponent(query)}`,
-  };
-
   return json({
     product: { title: product.title, brand: product.brand, model: product.model, sku: product.sku, variant: product.variant, category: product.category, seller: product.seller, condition: product.condition },
     offers: verified,
     risks: decisionReady
       ? [{ level: 'low', title: 'Multiple listings verified', detail: `${verified.length} comparable public listings were checked.` }]
-      : [{ level: 'medium', title: 'More listings are needed', detail: 'Add at least one more retailer product link before the app creates a recommendation.' }],
+      : [{ level: 'medium', title: 'Automatic search was limited', detail: 'The app did not verify at least two comparable retailer listings. Blocked or unreadable stores are listed separately.' }],
     summary: decisionReady
-      ? `${verified.length} comparable retailer listings were verified. Shipping that could not be read remains marked for checkout confirmation.`
-      : 'The product is confirmed. Use the free search links below, paste retailer product links, and the app will verify them without a paid search service.',
-    status: decisionReady ? 'researched' : 'research-limited',
-    source: product.sourceUrl,
-    decisionReady,
-    intake: product,
+      ? `${verified.length} comparable retailer listings were found and verified automatically. Shipping that could not be read remains marked for checkout confirmation.`
+      : 'The product is confirmed, but automatic retailer discovery did not produce two readable matching listings. No comparison price was invented.',
+    status: decisionReady ? 'researched' : 'research-limited', source: product.sourceUrl, decisionReady, intake: product,
     research: {
-      query, checkedAt, searchedCount: urls.length, attemptedCount: inspections.length,
+      query, checkedAt, searchedCount: adapters.length, attemptedCount: candidateUrls.length,
       blockedStores: [...new Set(blockedStores)], failedStores: [...new Set(failedStores)], rejectedStores: [...new Set(rejectedStores)],
-      supportedRetailers: [], setupRequired: false, providerError: '', noCost: true, searchLinks,
+      supportedRetailers: RETAILERS.map((retailer) => retailer.name), setupRequired: false, providerError: '', noCost: true,
+      discoveryMode: 'automatic-retailer-adapters',
     },
   });
 }
