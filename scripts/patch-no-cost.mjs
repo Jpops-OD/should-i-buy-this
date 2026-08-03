@@ -17,6 +17,21 @@ replaceOnce(
 );
 
 replaceOnce(
+  lines(
+    '    providerError: string;',
+    '  };',
+  ),
+  lines(
+    '    providerError: string;',
+    '    noCost?: boolean;',
+    '    searchLinks?: Record<string, string>;',
+    '    rejectedStores?: string[];',
+    '  };',
+  ),
+  'Research result type was not found',
+);
+
+replaceOnce(
   "  const [visualSearchLoading, setVisualSearchLoading] = useState(false);",
   lines(
     '  const [visualSearchLoading, setVisualSearchLoading] = useState(false);',
