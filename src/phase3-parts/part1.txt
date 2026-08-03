@@ -1,0 +1,294 @@
+  }
+  if (code === 'PRODUCT_NOT_FOUND') {
+    return {
+      title: 'We need more product detail',
+      message: payload?.error || 'Add the brand, model, or other identifying information.',
+      action: 'Add details and try again',
+    };
+  }
+  if (status >= 500) {
+    return {
+      title: 'We could not finish this check',
+      message: 'The product page could not be read right now.',
+      detail: 'This may be temporary, or the retailer may be limiting automated access.',
+      action: 'Try again or use another retailer',
+    };
+  }
+  return {
+    title: 'This check could not be completed',
+    message: payload?.error || 'Something unexpected happened.',
+    action: 'Try again',
+  };
+}
+
+function Brand() {
+  return (
+    <div className="brand-lockup" aria-label="Should I Buy This?">
+      <span className="brand-mark"><Icon name="shield" size={19} /></span>
+      <span>Should I Buy This?</span>
+    </div>
+  );
+}
+
+function App() {
+  const saved = useMemo(() => {
+    try {
+      const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+      if (parsed?.profiles?.length) {
+        return parsed as { profiles: Profile[]; activeProfileId: string };
+      }
+    } catch {
+      // Ignore unusable local storage and create a fresh profile.
+    }
+    const profile = defaultProfile();
+    return { profiles: [profile], activeProfileId: profile.id };
+  }, []);
+
+  const [profiles, setProfiles] = useState<Profile[]>(saved.profiles);
+  const [activeProfileId, setActiveProfileId] = useState(saved.activeProfileId);
+  const initialProfile = saved.profiles.find((item) => item.id === saved.activeProfileId) || saved.profiles[0];
+  const [profileDraft, setProfileDraft] = useState<ProfileDraft>(() => toDraft(initialProfile));
+  const [manageProfiles, setManageProfiles] = useState(false);
+  const [saveMessage, setSaveMessage] = useState('');
+  const [mode, setMode] = useState<'link' | 'search' | 'screenshot'>('link');
+  const [input, setInput] = useState('');
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState('');
+  const [intakeDraft, setIntakeDraft] = useState<ProductDraft | null>(null);
+  const [result, setResult] = useState<Result | null>(null);
+  const [tab, setTab] = useState<'overall' | 'compare' | 'fit' | 'risk'>('overall');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<AppError | null>(null);
+  const [space, setSpace] = useState({ name: 'Current space', width: 96, depth: 82, doorway: 34 });
+  const [selectedSpaceId, setSelectedSpaceId] = useState('');
+  const [fit, setFit] = useState<number | null>(null);
+
+  const profile = profiles.find((item) => item.id === activeProfileId) || profiles[0];
+  const decisionReady = result?.decisionReady !== false;
+  const scores = useMemo(() => result && decisionReady ? getScores(result, fit) : null, [result, fit, decisionReady]);
+  const verdictTone = scores && scores.overall >= 70
+    ? 'success'
+    : scores && scores.overall >= 55
+      ? 'warning'
+      : 'danger';
+  const hasUnsavedChanges = JSON.stringify(profileDraft) !== JSON.stringify(toDraft(profile));
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ profiles, activeProfileId }));
+  }, [profiles, activeProfileId]);
+
+  useEffect(() => {
+    if (!profiles.some((item) => item.id === activeProfileId) && profiles[0]) {
+      setActiveProfileId(profiles[0].id);
+    }
+  }, [profiles, activeProfileId]);
+
+  useEffect(() => {
+    setProfileDraft(toDraft(profile));
+    setSaveMessage('');
+  }, [profile.id]);
+
+  function updateProfile(patch: Partial<Profile>) {
+    setProfiles((items) => items.map((item) => (
+      item.id === profile.id ? { ...item, ...patch } : item
+    )));
+  }
+
+  function resetCheck() {
+    setResult(null);
+    setError(null);
+    setFit(null);
+    setInput('');
+    setIntakeDraft(null);
+    setScreenshotFile(null);
+    setScreenshotPreview('');
+    setTab('overall');
+  }
+
+  function resetIntake(nextMode?: 'link' | 'search' | 'screenshot') {
+    if (nextMode) setMode(nextMode);
+    setError(null);
+    setInput('');
+    setIntakeDraft(null);
+    setScreenshotFile(null);
+    setScreenshotPreview('');
+  }
+
+  function updateIntake(patch: Partial<ProductDraft>) {
+    setIntakeDraft((current) => current ? { ...current, ...patch } : current);
+  }
+
+  function confirmDiscardChanges() {
+    return !hasUnsavedChanges || window.confirm('Discard unsaved profile changes?');
+  }
+
+  function switchProfile(id: string, keepManagerOpen = false) {
+    if (id === profile.id) return;
+    if (!confirmDiscardChanges()) return;
+    const next = profiles.find((item) => item.id === id);
+    if (!next) return;
+    setActiveProfileId(id);
+    setProfileDraft(toDraft(next));
+    setSaveMessage('');
+    setManageProfiles(keepManagerOpen);
+    resetCheck();
+  }
+
+  function toggleProfileManager() {
+    if (manageProfiles && !confirmDiscardChanges()) return;
+    setProfileDraft(toDraft(profile));
+    setSaveMessage('');
+    setManageProfiles((value) => !value);
+  }
+
+  function createProfile(kind: ProfileKind = 'personal') {
+    if (!confirmDiscardChanges()) return;
+    const next: Profile = {
+      ...defaultProfile(),
+      kind,
+      name: kind === 'work'
+        ? 'Work'
+        : kind === 'shared'
+          ? 'Shared household'
+          : kind === 'custom'
+            ? 'Custom'
+            : `Personal ${profiles.length + 1}`,
+    };
+    setProfiles((items) => [...items, next]);
+    setActiveProfileId(next.id);
+    setProfileDraft(toDraft(next));
+    setSaveMessage('');
+    setManageProfiles(true);
+    resetCheck();
+  }
+
+  function deleteProfile(id: string) {
+    if (profiles.length === 1) return;
+    const nextProfiles = profiles.filter((item) => item.id !== id);
+    setProfiles(nextProfiles);
+    if (id === activeProfileId) {
+      const next = nextProfiles[0];
+      setActiveProfileId(next.id);
+      setProfileDraft(toDraft(next));
+      resetCheck();
+    }
+  }
+
+  function toggleDraftMembership(name: string) {
+    setProfileDraft((draft) => ({
+      ...draft,
+      memberships: draft.memberships.includes(name)
+        ? draft.memberships.filter((item) => item !== name)
+        : [...draft.memberships, name],
+    }));
+    setSaveMessage('');
+  }
+
+  function saveProfilePreferences() {
+    const cleanName = profileDraft.name.trim() || 'Untitled profile';
+    const cleanZip = profileDraft.zip.replace(/[^0-9A-Za-z -]/g, '').slice(0, 12);
+    updateProfile({
+      ...profileDraft,
+      name: cleanName,
+      zip: cleanZip,
+      threshold: Math.max(0, Number(profileDraft.threshold) || 0),
+      memberships: [...profileDraft.memberships],
+    });
+    setProfileDraft((draft) => ({
+      ...draft,
+      name: cleanName,
+      zip: cleanZip,
+      threshold: Math.max(0, Number(draft.threshold) || 0),
+    }));
+    setSaveMessage('Changes saved');
+  }
+
+  function cancelProfileEdit() {
+    setProfileDraft(toDraft(profile));
+    setSaveMessage('');
+    setManageProfiles(false);
+  }
+
+  function saveSpace() {
+    if (!space.name.trim() || space.width <= 0 || space.depth <= 0) return;
+    const next: Space = {
+      id: uid(),
+      name: space.name.trim(),
+      width: space.width,
+      depth: space.depth,
+      doorway: space.doorway,
+    };
+    updateProfile({ spaces: [...profile.spaces, next] });
+    setSelectedSpaceId(next.id);
+  }
+
+  function removeSpace(id: string) {
+    updateProfile({ spaces: profile.spaces.filter((item) => item.id !== id) });
+    if (selectedSpaceId === id) setSelectedSpaceId('');
+  }
+
+  function loadSpace(id: string) {
+    setSelectedSpaceId(id);
+    const savedSpace = profile.spaces.find((item) => item.id === id);
+    if (savedSpace) {
+      setSpace({
+        name: savedSpace.name,
+        width: savedSpace.width,
+        depth: savedSpace.depth,
+        doorway: savedSpace.doorway || 0,
+      });
+    }
+  }
+
+  function addHistory(nextResult: Result) {
+    const nextScores = nextResult.decisionReady === false ? null : getScores(nextResult, null);
+    const item: HistoryItem = {
+      id: uid(),
+      checkedAt: new Date().toISOString(),
+      title: nextResult.product.title,
+      source: nextResult.source,
+      verdict: nextScores?.verdict || 'Product identified',
+      score: nextScores?.overall || 0,
+      result: nextResult,
+    };
+    updateProfile({ history: [item, ...profile.history].slice(0, 25) });
+  }
+
+  function reopenHistory(item: HistoryItem) {
+    setResult(item.result);
+    setTab('overall');
+    setFit(null);
+    setManageProfiles(false);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function clearHistory() {
+    updateProfile({ history: [] });
+  }
+
+  async function identifyProduct() {
+    setLoading(true);
+    setError(null);
+    setIntakeDraft(null);
+    try {
+      let response: Response;
+      if (mode === 'screenshot') {
+        const form = new FormData();
+        form.append('mode', 'screenshot');
+        form.append('currency', profile.currency);
+        if (screenshotFile) form.append('file', screenshotFile);
+        response = await fetch('/api/intake', { method: 'POST', body: form });
+      } else {
+        response = await fetch('/api/intake', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ mode, input, currency: profile.currency }),
+        });
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw { status: response.status, payload: data };
+      setIntakeDraft(data.product as ProductDraft);
+    } catch (caught: any) {
+      setError(caught?.status
+        ? normalizeError(caught.status, caught.payload)
+        : normalizeError(503, {}));
