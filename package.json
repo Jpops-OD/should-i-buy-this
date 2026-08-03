@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "assemble": "node scripts/assemble-phase3.mjs && node scripts/patch-phase3-1.mjs && node scripts/fix-phase3-types.mjs && node scripts/auto-visual-fallback.mjs && node scripts/patch-phase4.mjs && node scripts/patch-no-cost.mjs && node scripts/patch-phase5.mjs && node scripts/patch-auto-discovery.mjs",
+    "assemble": "node scripts/assemble-phase3.mjs && node scripts/patch-phase3-1.mjs && node scripts/fix-phase3-types.mjs && node scripts/auto-visual-fallback.mjs && node scripts/patch-phase4.mjs && node scripts/patch-no-cost.mjs && node scripts/patch-phase5.mjs && node scripts/patch-auto-discovery.mjs && node scripts/patch-retailer-discovery.mjs",
     "dev": "npm run assemble && vite",
     "build": "npm run assemble && vite build",
     "check": "npm run assemble && tsc --noEmit",
