@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "should-i-buy-this",
-  "main": "worker/index.ts",
+  "main": "worker/phase3-1.ts",
   "compatibility_date": "2026-08-02",
   "ai": {
     "binding": "AI"

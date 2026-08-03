@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "assemble": "node scripts/assemble-phase3.mjs",
+    "assemble": "node scripts/assemble-phase3.mjs && node scripts/patch-phase3-1.mjs && node scripts/fix-phase3-types.mjs",
     "dev": "npm run assemble && vite",
     "build": "npm run assemble && vite build",
     "check": "npm run assemble && tsc --noEmit",
@@ -16,7 +16,7 @@
     "react-dom": "^19.1.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250802.0",
+    "@cloudflare/workers-types": "^5.20260730.1",
     "@types/react": "^19.1.10",
     "@types/react-dom": "^19.1.7",
     "@vitejs/plugin-react": "^4.7.0",
