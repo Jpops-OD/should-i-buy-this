@@ -104,5 +104,16 @@ replaceOnce(
   'Limited-research actions were not found',
 );
 
+// Hard safety net: no paid-search setup wording may survive the final assembled UI.
+source = source
+  .replaceAll('The retailer-search connection still needs to be added before the app can compare stores.', 'Use the free search links below, then paste matching retailer product-page links for verification.')
+  .replaceAll('Retailer search is not connected', 'More retailer links are needed')
+  .replaceAll('Nothing is missing from your product information. Add the Brave Search API secret to let the app discover retailer pages.', 'Nothing is missing from your product information. Add at least one more retailer product link for verification.')
+  .replaceAll('BRAVE_SEARCH_API_KEY is not configured.', 'No paid search service is used.');
+
+if (/Brave Search|BRAVE_SEARCH_API_KEY|Google Cloud Vision/i.test(source)) {
+  throw new Error('No-cost build failed: paid-service copy remains in the assembled interface');
+}
+
 await writeFile(file, source, 'utf8');
-console.log('Applied no-cost-only interface');
+console.log('Applied no-cost-only interface and removed stale paid-service copy');
