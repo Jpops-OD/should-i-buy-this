@@ -3,6 +3,11 @@ import { readFile, writeFile } from 'node:fs/promises';
 const workerFile = new URL('../worker/research.ts', import.meta.url);
 let worker = await readFile(workerFile, 'utf8');
 
+if (worker.includes('async function discoverViaPublicWeb(')) {
+  console.log('Layered retailer and public-web discovery already applied');
+  process.exit(0);
+}
+
 function replaceOnce(find, replacement, label) {
   if (!worker.includes(find)) throw new Error(`Layered discovery patch failed: ${label}`);
   worker = worker.replace(find, replacement);
