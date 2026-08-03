@@ -32,6 +32,6 @@ export default {
         visualSearch: Boolean(env.GOOGLE_CLOUD_VISION_API_KEY),
       });
     }
-    return phaseThreeWorker.fetch(request, env, ctx);
+    return phaseThreeWorker.fetch(request, env);
   },
 };
