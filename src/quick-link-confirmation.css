@@ -1,0 +1,50 @@
+.quick-link-confirmation .confirmation-grid,
+.quick-link-confirmation .intake-notes,
+.quick-link-confirmation .dimension-fields,
+.quick-link-confirmation .wide-field:has(textarea) {
+  display: none;
+}
+
+.quick-product-match {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) repeat(3, minmax(120px, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+  padding: 16px;
+  border: 1px solid var(--border, #c9dce7);
+  border-radius: 16px;
+  background: #f7fafb;
+}
+
+.quick-product-match > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.quick-product-match span {
+  color: var(--muted, #5e6b75);
+  font-size: .75rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.quick-product-match strong {
+  overflow-wrap: anywhere;
+}
+
+.quick-link-confirmation .confirmation-actions {
+  margin-top: 4px;
+}
+
+@media (max-width: 760px) {
+  .quick-product-match {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .quick-product-match > div:first-child {
+    grid-column: 1 / -1;
+  }
+}
