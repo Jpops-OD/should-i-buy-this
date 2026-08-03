@@ -1,4 +1,4 @@
-export type ResearchEnv = { BRAVE_SEARCH_API_KEY?: string };
+export type ResearchEnv = {};
 
 type ProductDraft = {
   title: string; brand: string; model: string; sku: string; variant: string; category: string;
@@ -8,8 +8,12 @@ type ProductDraft = {
 };
 
 type ResearchRequest = {
-  product?: ProductDraft; zip?: string; priority?: 'balance' | 'price' | 'speed';
-  currency?: string; memberships?: string[];
+  product?: ProductDraft;
+  listingUrls?: string[];
+  zip?: string;
+  priority?: 'balance' | 'price' | 'speed';
+  currency?: string;
+  memberships?: string[];
 };
 
 type PageProduct = {
@@ -25,22 +29,12 @@ type Offer = {
   shippingVerified: boolean; checkedAt: string; matchReason: string;
 };
 
-type SearchCandidate = { title: string; url: string; host: string };
-
-const RETAILER_HOSTS = [
-  'amazon.com','apple.com','bestbuy.com','bjs.com','costco.com','crateandbarrel.com',
-  'dell.com','ebay.com','homedepot.com','ikea.com','kitchenaid.com','kohls.com',
-  'lenovo.com','lowes.com','macys.com','newegg.com','officedepot.com','qvc.com',
-  'samsclub.com','staples.com','target.com','walmart.com','wayfair.com','williams-sonoma.com',
-];
-
-const json = (data: unknown, status = 200, headers: Record<string, string> = {}) => new Response(JSON.stringify(data), {
+const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), {
   status,
   headers: {
     'content-type': 'application/json;charset=utf-8',
     'cache-control': 'no-store',
     'x-content-type-options': 'nosniff',
-    ...headers,
   },
 });
 
@@ -74,7 +68,16 @@ const storeName = (value: string) => {
   return label.replace(/[-_]/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 };
 
-const supportedRetailer = (host: string) => RETAILER_HOSTS.some((domain) => host === domain || host.endsWith(`.${domain}`));
+function validPublicUrl(value: string) {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) return false;
+    const host = url.hostname.toLowerCase();
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1') return false;
+    if (/^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(host)) return false;
+    return true;
+  } catch { return false; }
+}
 
 function tokenSet(value: string) {
   return new Set(normalize(value).split(' ').filter((token) => token.length > 1));
@@ -152,11 +155,6 @@ function parseJsonLd(html: string): PageProduct | null {
       const offer = first(product.offers);
       const shippingDetails = first(offer.shippingDetails);
       const shippingRate = shippingDetails?.shippingRate;
-      const availability = stringValue(offer.availability).split('/').pop() || 'Unknown';
-      const condition = stringValue(offer.itemCondition || product.itemCondition).split('/').pop() || 'Unknown';
-      const delivery = shippingDetails?.deliveryTime?.transitTime?.maxValue
-        ? `Up to ${clean(shippingDetails.deliveryTime.transitTime.maxValue, 20)} days`
-        : 'Confirm at checkout';
       return {
         title: clean(product.name, 260),
         brand: stringValue(product.brand),
@@ -166,10 +164,12 @@ function parseJsonLd(html: string): PageProduct | null {
         price: parsePrice(offer.price ?? offer.lowPrice ?? offer.highPrice),
         currency: clean(offer.priceCurrency, 3).toUpperCase() || 'USD',
         seller: stringValue(offer.seller || product.seller),
-        condition,
-        availability,
+        condition: stringValue(offer.itemCondition || product.itemCondition).split('/').pop() || 'Unknown',
+        availability: stringValue(offer.availability).split('/').pop() || 'Unknown',
         shipping: parsePrice(shippingRate?.value ?? shippingRate),
-        delivery,
+        delivery: shippingDetails?.deliveryTime?.transitTime?.maxValue
+          ? `Up to ${clean(shippingDetails.deliveryTime.transitTime.maxValue, 20)} days`
+          : 'Confirm at checkout',
       };
     }
   }
@@ -180,22 +180,15 @@ function pick(html: string, expression: RegExp) {
   return clean(html.match(expression)?.[1] || '');
 }
 
-function parsePage(html: string, url: string, fallbackTitle = ''): PageProduct {
+function parsePage(html: string, url: string): PageProduct {
   const structured = parseJsonLd(html);
-  const title = structured?.title
-    || pick(html, /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i)
-    || pick(html, /<title[^>]*>([^<]+)/i)
-    || fallbackTitle;
   return {
-    title,
+    title: structured?.title || pick(html, /<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)/i) || pick(html, /<title[^>]*>([^<]+)/i),
     brand: structured?.brand || pick(html, /"brand"\s*:\s*(?:\{[^}]*"name"\s*:\s*)?"([^"]+)"/i),
     model: structured?.model || pick(html, /"(?:model|mpn)"\s*:\s*"([^"]+)"/i),
     sku: structured?.sku || pick(html, /"(?:sku|gtin13|gtin12|gtin)"\s*:\s*"([^"]+)"/i),
     variant: structured?.variant || '',
-    price: structured?.price ?? parsePrice(
-      pick(html, /<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([^"']+)/i)
-      || pick(html, /"price"\s*:\s*"?([0-9,.]+)/i),
-    ),
+    price: structured?.price ?? parsePrice(pick(html, /<meta[^>]+property=["']product:price:amount["'][^>]+content=["']([^"']+)/i) || pick(html, /"price"\s*:\s*"?([0-9,.]+)/i)),
     currency: structured?.currency || pick(html, /"priceCurrency"\s*:\s*"([A-Z]{3})"/i) || 'USD',
     seller: structured?.seller || storeName(url),
     condition: structured?.condition || 'Unknown',
@@ -211,7 +204,7 @@ async function fetchWithTimeout(url: string) {
   try {
     return await fetch(url, {
       headers: {
-        'user-agent': 'Mozilla/5.0 (compatible; ShouldIBuyThis/1.0; +https://should-i-buy-this.workers.dev)',
+        'user-agent': 'Mozilla/5.0 (compatible; ShouldIBuyThis/1.0)',
         accept: 'text/html,application/xhtml+xml',
         'accept-language': 'en-US,en;q=0.9',
       },
@@ -219,46 +212,12 @@ async function fetchWithTimeout(url: string) {
       signal: controller.signal,
       cf: { cacheTtl: 0 },
     });
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function searchWeb(product: ProductDraft, env: ResearchEnv) {
-  const identifier = clean(product.sku || product.model, 120);
-  const descriptive = clean([product.brand, product.title, product.variant].filter(Boolean).join(' '), 300);
-  const query = identifier ? `"${identifier}" ${product.brand || ''} buy price` : `${descriptive} buy price`;
-  if (!env.BRAVE_SEARCH_API_KEY) return { candidates: [] as SearchCandidate[], query, error: 'BRAVE_SEARCH_API_KEY is not configured.' };
-
-  const endpoint = new URL('https://api.search.brave.com/res/v1/web/search');
-  endpoint.searchParams.set('q', query.slice(0, 400));
-  endpoint.searchParams.set('country', 'US');
-  endpoint.searchParams.set('search_lang', 'en');
-  endpoint.searchParams.set('ui_lang', 'en-US');
-  endpoint.searchParams.set('count', '20');
-  endpoint.searchParams.set('safesearch', 'strict');
-  const response = await fetch(endpoint.toString(), {
-    headers: { accept: 'application/json', 'accept-encoding': 'gzip', 'x-subscription-token': env.BRAVE_SEARCH_API_KEY },
-  });
-  if (!response.ok) return { candidates: [] as SearchCandidate[], query, error: `Search provider returned HTTP ${response.status}.` };
-  const data: any = await response.json();
-  const results = Array.isArray(data?.web?.results) ? data.web.results : [];
-  const seen = new Set<string>();
-  const candidates: SearchCandidate[] = [];
-  for (const result of results) {
-    const url = clean(result?.url, 1200);
-    const host = hostname(url);
-    if (!url || !supportedRetailer(host) || seen.has(url)) continue;
-    seen.add(url);
-    candidates.push({ title: clean(result?.title, 260), url, host });
-    if (candidates.length >= 8) break;
-  }
-  return { candidates, query, error: '' };
+  } finally { clearTimeout(timer); }
 }
 
 function sourceOffer(product: ProductDraft, checkedAt: string): Offer | null {
-  if (product.visiblePrice == null) return null;
-  const store = product.seller || product.sourceName || (product.sourceUrl ? storeName(product.sourceUrl) : 'Submitted source');
+  if (product.visiblePrice == null || !product.sourceUrl || !validPublicUrl(product.sourceUrl)) return null;
+  const store = product.seller || product.sourceName || storeName(product.sourceUrl);
   return {
     store, itemPrice: product.visiblePrice, shipping: null, deliveredPrice: product.visiblePrice,
     delivery: 'Confirm at checkout', match: 'Exact', url: product.sourceUrl, seller: store,
@@ -267,27 +226,24 @@ function sourceOffer(product: ProductDraft, checkedAt: string): Offer | null {
   };
 }
 
-async function inspectCandidate(candidate: SearchCandidate, product: ProductDraft, checkedAt: string) {
+async function inspectUrl(url: string, product: ProductDraft, checkedAt: string) {
+  const host = hostname(url);
   try {
-    const response = await fetchWithTimeout(candidate.url);
-    if ([401, 403, 429].includes(response.status)) return { blocked: candidate.host };
-    if (!response.ok || !(response.headers.get('content-type') || '').includes('text/html')) return { failed: candidate.host };
-    const page = parsePage((await response.text()).slice(0, 1_500_000), candidate.url, candidate.title);
-    if (page.price == null || !page.title) return { failed: candidate.host };
+    const response = await fetchWithTimeout(url);
+    if ([401, 403, 429].includes(response.status)) return { blocked: host };
+    if (!response.ok || !(response.headers.get('content-type') || '').includes('text/html')) return { failed: host };
+    const page = parsePage((await response.text()).slice(0, 1_500_000), url);
+    if (page.price == null || !page.title) return { failed: host };
     const matched = matchProduct(product, page);
-    if (!matched.accepted) return { rejected: candidate.host };
-    const shipping = page.shipping;
-    const offer: Offer = {
-      store: storeName(candidate.url), itemPrice: page.price, shipping,
-      deliveredPrice: page.price + (shipping ?? 0), delivery: page.delivery,
-      match: matched.match, url: candidate.url, seller: page.seller || storeName(candidate.url),
+    if (!matched.accepted) return { rejected: host };
+    return { offer: {
+      store: storeName(url), itemPrice: page.price, shipping: page.shipping,
+      deliveredPrice: page.price + (page.shipping ?? 0), delivery: page.delivery,
+      match: matched.match, url, seller: page.seller || storeName(url),
       condition: page.condition || 'Unknown', availability: page.availability || 'Unknown',
-      priceVerified: true, shippingVerified: shipping != null, checkedAt, matchReason: matched.reason,
-    };
-    return { offer };
-  } catch {
-    return { failed: candidate.host };
-  }
+      priceVerified: true, shippingVerified: page.shipping != null, checkedAt, matchReason: matched.reason,
+    } satisfies Offer };
+  } catch { return { failed: host }; }
 }
 
 function uniqueOffers(offers: Offer[]) {
@@ -300,87 +256,66 @@ function uniqueOffers(offers: Offer[]) {
   }).sort((a, b) => a.deliveredPrice - b.deliveredPrice);
 }
 
-async function digest(value: string) {
-  const hash = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
-  return [...new Uint8Array(hash)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+function searchQuery(product: ProductDraft) {
+  const identifier = clean(product.sku || product.model, 120);
+  return clean(identifier ? `${product.brand} ${identifier}` : `${product.brand} ${product.title} ${product.variant}`, 300);
 }
 
-export async function handleResearch(request: Request, env: ResearchEnv, ctx: ExecutionContext) {
+export async function handleResearch(request: Request, _env: ResearchEnv, _ctx: ExecutionContext) {
   let body: ResearchRequest;
   try { body = await request.json(); }
-  catch { return json({ code: 'INVALID_RESEARCH', error: 'The confirmed product could not be read.' }, 400); }
-  const product = body.product;
-  if (!product?.title?.trim()) return json({ code: 'INVALID_RESEARCH', error: 'Confirm the product title before researching retailers.' }, 400);
+  catch { return json({ code: 'INVALID_REQUEST', error: 'The research request could not be read.' }, 400); }
 
-  const cacheHash = await digest(JSON.stringify({
-    title: normalize(product.title), brand: normalize(product.brand), model: normalize(product.model),
-    sku: normalize(product.sku), variant: normalize(product.variant), condition: conditionFamily(product.condition),
-    zip: clean(body.zip, 16), currency: clean(body.currency || product.currency, 3),
-  }));
-  const cacheKey = new Request(`https://research-cache.should-i-buy-this/${cacheHash}`);
-  const cached = await caches.default.match(cacheKey);
-  if (cached) return new Response(await cached.text(), {
-    status: cached.status,
-    headers: { 'content-type': 'application/json;charset=utf-8', 'cache-control': 'no-store', 'x-research-cache': 'HIT' },
-  });
+  const product = body.product;
+  if (!product?.title?.trim()) return json({ code: 'PRODUCT_REQUIRED', error: 'Confirm a product before comparing listings.' }, 400);
 
   const checkedAt = new Date().toISOString();
-  const submitted = sourceOffer(product, checkedAt);
-  const searched = await searchWeb(product, env);
-  const candidates = [...searched.candidates];
-  const sourceHost = hostname(product.sourceUrl);
-  if (product.sourceUrl && supportedRetailer(sourceHost) && !candidates.some((item) => item.url === product.sourceUrl)) {
-    candidates.unshift({ title: product.title, url: product.sourceUrl, host: sourceHost });
+  const submitted = Array.isArray(body.listingUrls) ? body.listingUrls : [];
+  const urls = [...new Set([product.sourceUrl, ...submitted].map((value) => clean(value, 1500)).filter((value) => value && validPublicUrl(value)))].slice(0, 10);
+  const offers: Offer[] = [];
+  const initial = sourceOffer(product, checkedAt);
+  if (initial) offers.push(initial);
+
+  const inspections = await Promise.all(urls.filter((url) => url !== product.sourceUrl || !initial).map((url) => inspectUrl(url, product, checkedAt)));
+  const blockedStores: string[] = [];
+  const failedStores: string[] = [];
+  const rejectedStores: string[] = [];
+  for (const item of inspections) {
+    if ('offer' in item && item.offer) offers.push(item.offer);
+    if ('blocked' in item && item.blocked) blockedStores.push(item.blocked);
+    if ('failed' in item && item.failed) failedStores.push(item.failed);
+    if ('rejected' in item && item.rejected) rejectedStores.push(item.rejected);
   }
 
-  const inspected = await Promise.all(candidates.slice(0, 8).map((candidate) => inspectCandidate(candidate, product, checkedAt)));
-  const discovered = inspected.flatMap((item) => item.offer ? [item.offer] : []);
-  const offers = uniqueOffers([...(submitted ? [submitted] : []), ...discovered]);
-  const blockedStores = Array.from(new Set(inspected.flatMap((item) => item.blocked ? [item.blocked] : [])));
-  const failedStores = Array.from(new Set(inspected.flatMap((item) => item.failed ? [item.failed] : [])));
-  const comparableOffers = offers.filter((offer) => offer.match === 'Exact' || offer.match === 'Likely');
-  const decisionReady = comparableOffers.length >= 2;
-  const best = comparableOffers[0];
-  const exactCount = comparableOffers.filter((offer) => offer.match === 'Exact').length;
-  const unverifiedShipping = comparableOffers.filter((offer) => !offer.shippingVerified).length;
-
-  const risks: Array<{ level: 'low' | 'medium' | 'high'; title: string; detail: string }> = [];
-  if (exactCount >= 2) risks.push({ level: 'low', title: 'Multiple exact matches found', detail: `${exactCount} listings matched the confirmed model or product identifier.` });
-  else if (comparableOffers.length >= 2) risks.push({ level: 'medium', title: 'Some matches are based on listing details', detail: 'Review the model, variant, and condition before purchasing.' });
-  if (unverifiedShipping > 0) risks.push({ level: 'medium', title: 'Some delivered totals are incomplete', detail: `${unverifiedShipping} listing${unverifiedShipping === 1 ? '' : 's'} did not publish a verifiable shipping charge. Those rows show listed price, not a guaranteed checkout total.` });
-  risks.push({ level: 'medium', title: 'Returns and seller terms need checkout confirmation', detail: 'Return windows, restocking fees, warranties, memberships, taxes, and marketplace seller terms can change by location and checkout state.' });
-  if (!decisionReady) risks.push({ level: 'medium', title: 'Not enough comparable listings', detail: 'The app will not create a buy recommendation from fewer than two comparable public listings.' });
-
-  const setupRequired = !env.BRAVE_SEARCH_API_KEY;
-  const summary = decisionReady && best
-    ? `${best.store} has the lowest ${best.shippingVerified ? 'verified delivered total' : 'verified listed price'} among ${comparableOffers.length} comparable listings. Review any unverified shipping and checkout terms before buying.`
-    : setupRequired
-      ? 'The product is confirmed, but the retailer-search connection is not configured yet. No recommendation was created.'
-      : `The search found ${comparableOffers.length} comparable listing${comparableOffers.length === 1 ? '' : 's'}. That is not enough for a confident purchase recommendation.`;
-
-  const result = {
-    status: decisionReady ? 'researched' : 'research-limited',
-    decisionReady,
-    source: product.sourceUrl || product.sourceName || product.seller || 'Confirmed product',
-    intake: product,
-    product: {
-      title: product.title, brand: product.brand, model: product.model, sku: product.sku,
-      variant: product.variant, category: product.category || 'Product comparison',
-      seller: product.seller, condition: product.condition,
-    },
-    offers: comparableOffers,
-    risks,
-    summary,
-    research: {
-      query: searched.query, checkedAt, searchedCount: searched.candidates.length,
-      attemptedCount: candidates.length, blockedStores, failedStores,
-      supportedRetailers: RETAILER_HOSTS, setupRequired, providerError: searched.error || '',
-    },
+  const verified = uniqueOffers(offers);
+  const decisionReady = verified.length >= 2;
+  const query = searchQuery(product);
+  const searchLinks = {
+    google: `https://www.google.com/search?tbm=shop&q=${encodeURIComponent(query)}`,
+    bing: `https://www.bing.com/shop?q=${encodeURIComponent(query)}`,
+    walmart: `https://www.walmart.com/search?q=${encodeURIComponent(query)}`,
+    target: `https://www.target.com/s?searchTerm=${encodeURIComponent(query)}`,
+    bestBuy: `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(query)}`,
+    amazon: `https://www.amazon.com/s?k=${encodeURIComponent(query)}`,
   };
 
-  const cacheResponse = new Response(JSON.stringify(result), {
-    headers: { 'content-type': 'application/json;charset=utf-8', 'cache-control': 'public, max-age=900' },
+  return json({
+    product: { title: product.title, brand: product.brand, model: product.model, sku: product.sku, variant: product.variant, category: product.category, seller: product.seller, condition: product.condition },
+    offers: verified,
+    risks: decisionReady
+      ? [{ level: 'low', title: 'Multiple listings verified', detail: `${verified.length} comparable public listings were checked.` }]
+      : [{ level: 'medium', title: 'More listings are needed', detail: 'Add at least one more retailer product link before the app creates a recommendation.' }],
+    summary: decisionReady
+      ? `${verified.length} comparable retailer listings were verified. Shipping that could not be read remains marked for checkout confirmation.`
+      : 'The product is confirmed. Use the free search links below, paste retailer product links, and the app will verify them without a paid search service.',
+    status: decisionReady ? 'researched' : 'research-limited',
+    source: product.sourceUrl,
+    decisionReady,
+    intake: product,
+    research: {
+      query, checkedAt, searchedCount: urls.length, attemptedCount: inspections.length,
+      blockedStores: [...new Set(blockedStores)], failedStores: [...new Set(failedStores)], rejectedStores: [...new Set(rejectedStores)],
+      supportedRetailers: [], setupRequired: false, providerError: '', noCost: true, searchLinks,
+    },
   });
-  ctx.waitUntil(caches.default.put(cacheKey, cacheResponse.clone()));
-  return json(result, 200, { 'x-research-cache': 'MISS' });
 }
